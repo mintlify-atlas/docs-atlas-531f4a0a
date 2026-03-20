@@ -1,0 +1,63 @@
+---
+title: "procfs generator"
+description: "Emit a synthetic /proc filesystem for testing procfs-aware agents."
+---
+
+The `procfs` generator creates a synthetic `/proc`-like filesystem on disk. It is designed for testing agents or programs that read from Linux's `/proc` filesystem to discover process information — for example, agents that monitor process CPU, memory, or file descriptor usage by reading `/proc/<pid>/stat` and related files.
+
+<Warning>
+  The `procfs` generator does not mount at the system's actual `/proc`. It writes synthetic procfs data to a configurable root path. Your target must be configured to read from that path rather than `/proc`.
+</Warning>
+
+<Note>
+  This generator is currently incomplete and marked as experimental. It generates synthetic process entries but may not cover all `/proc` file formats. It is primarily used for testing procfs-aware data collection in isolated environments.
+</Note>
+
+## Configuration
+
+```yaml lading.yaml
+generator:
+  - procfs:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      root: /tmp/synthetic-proc
+      total_processes: 50
+
+telemetry:
+  prometheus:
+    addr: "0.0.0.0:9000"
+```
+
+## Parameters
+
+<ParamField body="seed" type="array[u8; 32]" required>
+  A 32-element array of unsigned integers used to seed the random number generator. The same seed always produces identical synthetic process data. Must contain exactly 32 values.
+</ParamField>
+
+<ParamField body="root" type="string" required>
+  The filesystem path where the synthetic `/proc` directory structure will be written. Your target must be configured to read from this path.
+</ParamField>
+
+<ParamField body="total_processes" type="number" required>
+  The total number of synthetic process entries to create in the fake procfs tree. Must be a non-zero positive integer.
+</ParamField>
+
+<ParamField body="copy_from_host" type="array[string]">
+  A list of real `/proc` file paths to copy from the host into the synthetic root. Defaults to `["/proc/uptime", "/proc/stat"]`. Useful for preserving real host-level procfs files alongside synthetic process entries.
+
+  ```yaml
+  copy_from_host:
+    - /proc/uptime
+    - /proc/stat
+    - /proc/meminfo
+  ```
+</ParamField>
+
+## Use case
+
+The `procfs` generator is suited for testing:
+
+- Agents that discover running processes by scanning `/proc`
+- Metrics collectors that parse `/proc/<pid>/stat`, `/proc/<pid>/status`, or `/proc/<pid>/fd/`
+- Any software that inspects Linux procfs data without needing real running processes
+
+By controlling `total_processes` and `seed`, you can create repeatable synthetic workloads for procfs-aware programs.

@@ -1,0 +1,67 @@
+---
+title: "datadog_stateful_logs blackhole"
+description: "Accept Datadog stateful logs via bidirectional streaming gRPC."
+---
+
+The `datadog_stateful_logs` blackhole implements the Datadog stateful logs protocol over bidirectional streaming gRPC. It accepts log batches from a Datadog Agent or compatible client and discards them after acknowledgement, allowing you to test stateful log streaming pipelines without a real Datadog backend.
+
+<Note>
+  This blackhole never backpressures the target. It accepts all incoming log streams and responds with acknowledgement messages to allow the target to continue sending.
+</Note>
+
+## Configuration
+
+```yaml lading.yaml
+blackhole:
+  - datadog_stateful_logs:
+      grpc_addr: "0.0.0.0:8443"
+```
+
+## Parameters
+
+<ParamField body="grpc_addr" type="string" required>
+  The address and port to bind the gRPC server to. Must be a valid socket address. Example: `"0.0.0.0:8443"`.
+</ParamField>
+
+<ParamField body="response_delay_millis" type="number" default="0">
+  Delay in milliseconds to add before sending acknowledgement responses. Set to a non-zero value to simulate backend latency. Default is `0` (no delay).
+</ParamField>
+
+## Metrics emitted
+
+| Metric | Kind | Description |
+|---|---|---|
+| `bytes_received` | Counter | Total bytes received across all streams |
+| `total_bytes_received` | Counter | Aggregated bytes received (no labels) |
+| `streams_received` | Counter | Total number of streaming connections accepted |
+| `batches_received` | Counter | Total log batches received |
+| `data_items_received` | Counter | Total individual log items received across all batches |
+| `stream_errors` | Counter | Errors encountered while processing streams |
+
+## Pairing
+
+<Tip>
+  This blackhole is designed to pair with targets that send Datadog stateful logs via gRPC — for example, a Datadog Agent configured to forward logs to the stateful logs intake endpoint.
+</Tip>
+
+```yaml lading.yaml
+generator:
+  - http:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      target_uri: "http://127.0.0.1:8282/"
+      bytes_per_second: "10 MiB"
+      parallel_connections: 4
+      method:
+        post:
+          variant: "datadog_log"
+          maximum_prebuild_cache_size_bytes: "64 MiB"
+      headers: {}
+
+blackhole:
+  - datadog_stateful_logs:
+      grpc_addr: "0.0.0.0:8443"
+
+telemetry:
+  prometheus:
+    addr: "0.0.0.0:9000"
+```

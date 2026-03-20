@@ -1,0 +1,100 @@
+---
+title: "static_chunks payload"
+description: "Read lines from a static file and pack them into payload blocks."
+---
+
+The `static_chunks` payload reads a user-supplied file (or directory of files) line by line and packs those lines into payload blocks, trying to fill each block up to the `maximum_block_size`. This is distinct from the [`static`](/payloads/overview) payload, which reads entire files as single blocks.
+
+`static_chunks` is ideal when your file contains newline-delimited records (such as log lines, JSON events, or DogStatsD datagrams) and you want lading to replay them at a controlled rate while respecting block size boundaries.
+
+<Note>
+  `static_chunks` does not generate random data — it replays the exact bytes from your file. The `seed` in your generator config has no effect on the content of `static_chunks` payloads.
+</Note>
+
+## Configuration
+
+Specify `static_chunks` as the `variant` in any generator that accepts a `variant` field:
+
+```yaml lading.yaml
+generator:
+  - tcp:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      addr: "0.0.0.0:8282"
+      maximum_prebuild_cache_size_bytes: "64 MiB"
+      variant:
+        static_chunks:
+          static_path: /path/to/your/logfile.log
+
+blackhole:
+  - tcp:
+      binding_addr: "0.0.0.0:8282"
+
+telemetry:
+  prometheus:
+    addr: "0.0.0.0:9000"
+```
+
+## Parameters
+
+<ParamField body="static_path" type="string" required>
+  Path to a file or directory to read payload data from.
+
+  - **File**: The file is read line by line. Each line becomes a candidate for inclusion in a block.
+  - **Directory**: All files in the directory (non-recursively) are read line by line in an unspecified order.
+
+  An error is returned at startup if no lines are found at the given path.
+</ParamField>
+
+## Block packing behavior
+
+Unlike `static` (which puts each entire file into one block), `static_chunks` packs multiple lines into a single block up to the generator's `maximum_block_size`. This allows you to control how much data is sent per write operation while still replaying real data.
+
+Lines that exceed `maximum_block_size` are split across multiple blocks.
+
+## Supported generators
+
+`static_chunks` can be used as the `variant` in these generators:
+
+- `http`
+- `tcp`
+- `udp`
+- `unix_stream`
+- `unix_datagram`
+- `grpc`
+- `file_gen`
+- `passthru_file`
+
+## Comparison with `static`
+
+| Feature | `static` | `static_chunks` |
+|---|---|---|
+| Block boundary | Whole file = one block | Lines packed up to `maximum_block_size` |
+| Use case | Binary files, large payloads | Log files, NDJSON, DogStatsD datagrams |
+| Multiple files | Yes (one block each) | Yes (all lines interleaved) |
+| Rate throttling | Yes | Yes |
+
+## Example: Replay real log lines via HTTP
+
+```yaml lading.yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://127.0.0.1:8282/"
+      bytes_per_second: "50 MiB"
+      parallel_connections: 4
+      method:
+        post:
+          variant:
+            static_chunks:
+              static_path: /var/log/app/production.log
+          maximum_prebuild_cache_size_bytes: "128 MiB"
+      headers: {}
+
+blackhole:
+  - http:
+      binding_addr: "0.0.0.0:8282"
+
+telemetry:
+  prometheus:
+    addr: "0.0.0.0:9000"
+```

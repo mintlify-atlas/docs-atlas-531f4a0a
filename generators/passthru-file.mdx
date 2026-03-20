@@ -1,0 +1,89 @@
+---
+title: "passthru_file generator"
+description: "Write payload data directly to a file on disk at a controlled rate."
+---
+
+The `passthru_file` generator writes pre-computed payload blocks directly to a file on the local filesystem. It is designed for targets that watch a file for incoming data — such as the Datadog Agent reading from a Unix socket file or a log shipper tailing a file.
+
+Unlike the `file_gen` generator (which manages file rotation and lifecycle), `passthru_file` simply opens a single file and continuously overwrites it with payload data at the configured rate. It is the simplest file-based generator.
+
+<Note>
+  `passthru_file` is a transport generator — it delivers a payload variant to a file path. The data content is controlled by the `variant` field. Common uses include DogStatsD datagrams written to a Unix socket file.
+</Note>
+
+## Configuration
+
+```yaml lading.yaml
+generator:
+  - passthru_file:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      path: "/var/run/datadog/dsd.socket"
+      variant: "dogstatsd"
+      bytes_per_second: "10 MiB"
+      maximum_prebuild_cache_size_bytes: "64 MiB"
+```
+
+## Parameters
+
+<ParamField body="seed" type="array[u8; 32]" required>
+  A 32-element array of unsigned integers used to seed the random number generator. The same seed always produces identical payload bytes. Must contain exactly 32 values.
+</ParamField>
+
+<ParamField body="path" type="string" required>
+  The filesystem path to write data to. The file is created (or truncated) on startup and written continuously. This can be a regular file or a Unix socket file.
+</ParamField>
+
+<ParamField body="variant" type="string" required>
+  The payload format to generate. All standard payload variants are supported: `ascii`, `json`, `dogstatsd`, `datadog_log`, `fluent`, `syslog5424`, `apache_common`, `splunk_hec`, `opentelemetry_logs`, `opentelemetry_metrics`, `opentelemetry_traces`, `templated_json`, `static`, `static_chunks`.
+</ParamField>
+
+<ParamField body="maximum_prebuild_cache_size_bytes" type="string" required>
+  The total size of the pre-built payload cache in bytes. Larger values reduce repetition in the generated data. Example: `"64 MiB"`. Supports standard byte unit suffixes.
+</ParamField>
+
+<ParamField body="bytes_per_second" type="string">
+  The target throughput in bytes per second. Example: `"10 MiB"`. If omitted, lading writes as fast as possible.
+</ParamField>
+
+<ParamField body="maximum_block_size" type="string">
+  The maximum size of a single payload block in bytes. Defaults to the global lading default block size. Example: `"1 MiB"`.
+</ParamField>
+
+<ParamField body="throttle" type="object">
+  Optional throttle configuration to override the default rate-limiting behavior. See [Throttling](/concepts/throttling) for details.
+</ParamField>
+
+## Metrics emitted
+
+| Metric | Kind | Description |
+|---|---|---|
+| `bytes_written` | Counter | Bytes successfully written to the file |
+| `bytes_per_second` | Gauge | Configured target throughput |
+| `file_open_failure` | Counter | Number of failed file open attempts |
+| `file_write_failure` | Counter | Number of failed write operations |
+
+<Tip>
+  If the file open fails (e.g., the target has not yet created the socket), `passthru_file` retries every second and continues until the file becomes available.
+</Tip>
+
+## Behavior notes
+
+- The file is opened with `create`, `write`, and `truncate` flags — it is overwritten on every lading run.
+- If a write fails, the error is counted and lading continues with the next block.
+- Shutdown is cooperative: `passthru_file` completes cleanly when lading's shutdown signal is received.
+
+## Example: DogStatsD via socket file
+
+```yaml lading.yaml
+generator:
+  - passthru_file:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      path: "/var/run/datadog/dsd.socket"
+      variant: "dogstatsd"
+      bytes_per_second: "5 MiB"
+      maximum_prebuild_cache_size_bytes: "32 MiB"
+
+telemetry:
+  prometheus:
+    addr: "0.0.0.0:9000"
+```

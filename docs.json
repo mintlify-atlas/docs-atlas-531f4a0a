@@ -71,7 +71,9 @@
               "generators/process-tree",
               "generators/trace-agent",
               "generators/container",
-              "generators/kubernetes"
+              "generators/kubernetes",
+              "generators/passthru-file",
+              "generators/procfs"
             ]
           },
           {
@@ -85,6 +87,7 @@
               "blackholes/splunk-hec",
               "blackholes/otlp",
               "blackholes/datadog",
+              "blackholes/datadog-stateful-logs",
               "blackholes/sqs"
             ]
           },
@@ -101,7 +104,8 @@
               "payloads/opentelemetry",
               "payloads/splunk-hec",
               "payloads/syslog",
-              "payloads/templated-json"
+              "payloads/templated-json",
+              "payloads/static-chunks"
             ]
           },
           {
