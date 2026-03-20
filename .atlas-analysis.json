@@ -1,0 +1,167 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "lading",
+  "projectDescription": "A deterministic load generation and performance measurement tool for long-running programs, supporting multiple protocols including HTTP, gRPC, TCP, UDP, DogStatsD, and more.",
+  "theme": "aspen",
+  "primaryColor": "#688782",
+  "lightColor": "#346861",
+  "darkColor": "#c5d3d1",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/generators",
+              "concepts/blackholes",
+              "concepts/targets",
+              "concepts/payloads",
+              "concepts/throttling"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/telemetry",
+              "configuration/target-modes"
+            ]
+          },
+          {
+            "group": "Generators",
+            "pages": [
+              "generators/http",
+              "generators/grpc",
+              "generators/tcp",
+              "generators/udp",
+              "generators/unix-stream",
+              "generators/unix-datagram",
+              "generators/splunk-hec",
+              "generators/dogstatsd",
+              "generators/file-gen",
+              "generators/file-tree",
+              "generators/process-tree",
+              "generators/trace-agent",
+              "generators/container",
+              "generators/kubernetes"
+            ]
+          },
+          {
+            "group": "Blackholes",
+            "pages": [
+              "blackholes/http",
+              "blackholes/tcp",
+              "blackholes/udp",
+              "blackholes/unix-stream",
+              "blackholes/unix-datagram",
+              "blackholes/splunk-hec",
+              "blackholes/otlp",
+              "blackholes/datadog",
+              "blackholes/sqs"
+            ]
+          },
+          {
+            "group": "Payload Types",
+            "pages": [
+              "payloads/overview",
+              "payloads/apache-common",
+              "payloads/ascii",
+              "payloads/datadog-logs",
+              "payloads/dogstatsd",
+              "payloads/fluent",
+              "payloads/json",
+              "payloads/opentelemetry",
+              "payloads/splunk-hec",
+              "payloads/syslog",
+              "payloads/templated-json"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/running-with-docker",
+              "guides/kubernetes",
+              "guides/capture-analysis",
+              "guides/performance-testing"
+            ]
+          },
+          {
+            "group": "Tools",
+            "pages": [
+              "tools/captool",
+              "tools/payloadtool"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/cli",
+              "reference/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Deterministic, seed-based load generation for reproducible performance tests",
+    "Pre-computed payload caching to minimize runtime overhead and interference with targets",
+    "Support for multiple protocols: HTTP, gRPC, TCP, UDP, DogStatsD, Splunk HEC, Fluent, OpenTelemetry",
+    "Three target observation modes: binary launch, PID watch, and container watch",
+    "Multiple blackhole types to absorb target output without external dependencies",
+    "Prometheus and structured log (JSONL/Parquet) telemetry export",
+    "Kubernetes-native deployment support",
+    "Composable YAML configuration with multi-file directory-based merging",
+    "Templated JSON payload generation for custom payload shapes",
+    "Rate throttling based on bytes-per-second or block-rate"
+  ],
+  "publicApiSurface": [
+    "lading (binary) - main load generation and target monitoring tool",
+    "captool (binary) - inspect and analyze lading capture output files",
+    "payloadtool (binary) - validate payload configuration and generation",
+    "generator: http - HTTP load generator with POST/GET methods",
+    "generator: grpc - gRPC load generator",
+    "generator: tcp - TCP load generator",
+    "generator: udp - UDP load generator",
+    "generator: unix_stream - Unix stream socket generator",
+    "generator: unix_datagram - Unix datagram socket generator",
+    "generator: splunk_hec - Splunk HEC protocol generator",
+    "generator: file_gen - file-based load generator",
+    "generator: file_tree - file system tree generator",
+    "generator: process_tree - process tree generator",
+    "generator: trace_agent - Datadog trace agent protocol generator",
+    "generator: container - container-based generator",
+    "generator: kubernetes - Kubernetes workload generator",
+    "blackhole: http - HTTP blackhole server",
+    "blackhole: tcp - TCP blackhole",
+    "blackhole: udp - UDP blackhole",
+    "blackhole: unix_stream - Unix stream blackhole",
+    "blackhole: unix_datagram - Unix datagram blackhole",
+    "blackhole: splunk_hec - Splunk HEC blackhole",
+    "blackhole: otlp - OpenTelemetry Protocol blackhole",
+    "blackhole: datadog - Datadog API blackhole",
+    "blackhole: sqs - AWS SQS blackhole",
+    "payload: ApacheCommon - Apache Common Log format",
+    "payload: Ascii - random ASCII text",
+    "payload: DatadogLog - Datadog log format",
+    "payload: DogStatsD - DogStatsD metrics protocol",
+    "payload: Fluent - Fluent Forward Protocol",
+    "payload: Json - JSON data",
+    "payload: OpentelemetryLogs/Metrics/Traces - OpenTelemetry formats",
+    "payload: SplunkHec - Splunk HEC format",
+    "payload: Syslog5424 - Syslog RFC 5424 format",
+    "payload: TemplatedJson - user-defined JSON template",
+    "payload: StaticChunks - static file divided into blocks"
+  ]
+}
