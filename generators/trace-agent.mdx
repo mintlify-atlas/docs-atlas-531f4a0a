@@ -1,0 +1,187 @@
+---
+title: 'Trace agent generator'
+description: 'Send deterministic APM trace payloads to the Datadog trace-agent.'
+---
+
+The trace agent generator sends APM trace payloads to the Datadog Agent's trace-agent component. Unlike the generic HTTP generator, this generator understands the trace-agent's protocol requirements and handles backoff responses correctly.
+
+Currently, only the v0.4 trace-agent API is supported.
+
+## Configuration example
+
+```yaml
+generator:
+  - id: "trace_agent_v04"
+    trace_agent:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59,
+             61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      target_uri: "http://localhost:8126"
+      backoff_behavior:
+        obey:
+          max_retries: 3
+      variant:
+        v0.4:
+          contexts:
+            inclusive:
+              min: 1000
+              max: 5000
+          spans_per_trace:
+            inclusive:
+              min: 1
+              max: 20
+          tags_per_span:
+            inclusive:
+              min: 0
+              max: 10
+          metrics_per_span:
+            inclusive:
+              min: 0
+              max: 3
+          error_rate: 0.05
+          service_name_length:
+            inclusive:
+              min: 5
+              max: 20
+          operation_name_length:
+            inclusive:
+              min: 5
+              max: 30
+          resource_name_length:
+            inclusive:
+              min: 10
+              max: 50
+          span_type_length:
+            inclusive:
+              min: 3
+              max: 15
+          tag_key_length:
+            inclusive:
+              min: 3
+              max: 25
+          tag_value_length:
+            inclusive:
+              min: 5
+              max: 50
+          metric_key_length:
+            inclusive:
+              min: 3
+              max: 20
+      bytes_per_second: "50 MiB"
+      maximum_block_size: "1 MiB"
+      maximum_prebuild_cache_size_bytes: "256 MiB"
+      parallel_connections: 1
+```
+
+## Configuration fields
+
+<ParamField path="seed" type="[u8; 32]" required>
+  A 32-byte seed array for the random number generator. The same seed produces identical trace payloads.
+</ParamField>
+
+<ParamField path="target_uri" type="string" required>
+  The base URI of the Datadog trace-agent (for example, `http://localhost:8126`). The generator appends the API version path automatically.
+</ParamField>
+
+<ParamField path="variant" type="object" required>
+  The trace payload configuration. Currently only `v0.4` is supported.
+
+  <Expandable title="v0.4 payload fields">
+    <ParamField path="variant.v0.4.contexts" type="ConfRange<u32>" required>
+      The number of unique trace contexts (service + resource combinations). Accepts `constant: N` or `inclusive: { min, max }`.
+    </ParamField>
+    <ParamField path="variant.v0.4.spans_per_trace" type="ConfRange<u32>" required>
+      The number of spans per trace.
+    </ParamField>
+    <ParamField path="variant.v0.4.tags_per_span" type="ConfRange<u32>" required>
+      The number of string tags attached to each span.
+    </ParamField>
+    <ParamField path="variant.v0.4.metrics_per_span" type="ConfRange<u32>" required>
+      The number of numeric metrics attached to each span.
+    </ParamField>
+    <ParamField path="variant.v0.4.error_rate" type="f32" required>
+      Probability (0.0–1.0) that a span is marked as an error.
+    </ParamField>
+    <ParamField path="variant.v0.4.service_name_length" type="ConfRange<u32>" required>
+      Character length range for service names.
+    </ParamField>
+    <ParamField path="variant.v0.4.operation_name_length" type="ConfRange<u32>" required>
+      Character length range for operation names.
+    </ParamField>
+    <ParamField path="variant.v0.4.resource_name_length" type="ConfRange<u32>" required>
+      Character length range for resource names.
+    </ParamField>
+    <ParamField path="variant.v0.4.span_type_length" type="ConfRange<u32>" required>
+      Character length range for span type strings.
+    </ParamField>
+    <ParamField path="variant.v0.4.tag_key_length" type="ConfRange<u32>" required>
+      Character length range for tag key strings.
+    </ParamField>
+    <ParamField path="variant.v0.4.tag_value_length" type="ConfRange<u32>" required>
+      Character length range for tag value strings.
+    </ParamField>
+    <ParamField path="variant.v0.4.metric_key_length" type="ConfRange<u32>" required>
+      Character length range for numeric metric key strings.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="parallel_connections" type="u16" required>
+  The number of simultaneous HTTP connections to maintain to the trace-agent.
+</ParamField>
+
+<ParamField path="maximum_prebuild_cache_size_bytes" type="string" required>
+  Maximum size of the pre-built payload cache. Accepts human-readable sizes such as `"256 MiB"`.
+</ParamField>
+
+<ParamField path="backoff_behavior" type="object" default="obey with 3 retries">
+  Controls how the generator responds to `429 Too Many Requests` and `503 Service Unavailable` responses from the trace-agent.
+
+  <Expandable title="backoff_behavior options">
+    <ParamField path="backoff_behavior.obey" type="object">
+      Respect backoff signals with exponential backoff up to `max_retries` attempts. Each retry doubles the wait time starting at 100 ms, capped at 6,400 ms.
+      <ParamField path="backoff_behavior.obey.max_retries" type="u16" required>
+        Maximum number of retry attempts before giving up.
+      </ParamField>
+    </ParamField>
+    <ParamField path="backoff_behavior.ignore" type="object">
+      Ignore all backoff signals and send at the configured rate regardless of `429`/`503` responses.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="bytes_per_second" type="string">
+  Target throughput in bytes per second. Mutually exclusive with `throttle`.
+
+  <Warning>Deprecated in favor of `throttle`. Use `throttle.stable.bytes_per_second` for new configurations.</Warning>
+</ParamField>
+
+<ParamField path="maximum_block_size" type="string" default="1 MiB">
+  Maximum size of an individual block in the pre-built payload cache.
+</ParamField>
+
+<ParamField path="block_cache_method" type="string" default="fixed">
+  How the block cache is populated: `fixed` or `streaming`.
+</ParamField>
+
+<ParamField path="throttle" type="object">
+  Load throttle configuration. Mutually exclusive with `bytes_per_second`. See [Throttling](/concepts/throttling).
+</ParamField>
+
+## Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `requests_sent` | Total requests sent to the trace-agent |
+| `request_ok` | Successful requests (2xx responses) |
+| `request_failure` | Failed requests |
+| `bytes_written` | Total bytes written |
+
+## Behavior notes
+
+The trace-agent expects payloads to be MessagePack-encoded trace arrays. The generator handles encoding automatically.
+
+When `backoff_behavior: obey` is configured and the trace-agent returns a `429` or `503`, the generator backs off exponentially before retrying. If `max_retries` is exhausted, the request is dropped and counted as a failure.
+
+<Tip>
+  Start with `parallel_connections: 1` and increase only if the trace-agent can sustain higher concurrency. The trace-agent is sensitive to overload.
+</Tip>

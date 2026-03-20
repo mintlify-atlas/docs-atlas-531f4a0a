@@ -1,0 +1,62 @@
+---
+title: "ASCII"
+description: "Generates lines of random printable ASCII text."
+---
+
+The `ascii` payload produces lines of random printable ASCII characters. Each line is between 1 and 6,144 bytes (6 KiB) in length, chosen randomly per line. This is a minimal payload useful for throughput benchmarking or testing parsers that accept arbitrary text.
+
+## Format
+
+Each block contains one or more newline-terminated lines of printable ASCII text. Lines contain no embedded newlines.
+
+## Sample output
+
+```text
+ZqA3mB9xWpLv2oKdRuYt8cFn0sEi4jGhM7wQbT6yNl
+HkPaO1mXvZqeR5sUcNw3yJiG8tBdF2oLK9nAbT7M
+QpZxWvR3mYsKcB6dNuOeT1jFiLhG9wA4nMt2oXP8
+```
+
+## Configuration
+
+`ascii` has no configuration options. Specify it as a bare string:
+
+```yaml
+variant: ascii
+```
+
+## Supported generators
+
+All generators that accept a `variant` field support `ascii`: `http`, `tcp`, `udp`, `unix_stream`, `unix_datagram`, `grpc`, `file_gen`, and `passthru_file`.
+
+## Example
+
+```yaml
+generator:
+  - tcp:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      addr: "127.0.0.1:8080"
+      bytes_per_second: "100 MiB"
+      maximum_prebuild_cache_size_bytes: "256 MiB"
+      variant: ascii
+
+blackhole:
+  - tcp:
+      binding_addr: "0.0.0.0:8080"
+```
+
+### File generator
+
+```yaml
+generator:
+  - file_gen:
+      traditional:
+        seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+               17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+        path_template: "/tmp/lading/part.%NNN%.log"
+        bytes_per_second: "10 MiB"
+        maximum_bytes_per_file: "100 MiB"
+        maximum_prebuild_cache_size_bytes: "256 MiB"
+        variant: ascii
+```

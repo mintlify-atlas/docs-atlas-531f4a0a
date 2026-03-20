@@ -1,0 +1,142 @@
+---
+title: "TCP generator"
+description: "Generate deterministic TCP load against a target socket address."
+---
+
+The TCP generator maintains one or more persistent TCP connections to a target address and writes pre-built payload blocks at a configurable rate. If a connection drops, the worker automatically reconnects.
+
+## Configuration example
+
+```yaml
+generator:
+  - tcp:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59,
+             61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      addr: "127.0.0.1:8282"
+      variant: syslog5424
+      bytes_per_second: "500 MiB"
+      maximum_prebuild_cache_size_bytes: "256 MiB"
+      parallel_connections: 1
+```
+
+## Configuration fields
+
+<ParamField body="seed" type="number[]" required>
+  A 32-byte array used to seed all random operations. The same seed always
+  produces the same sequence of payloads.
+</ParamField>
+
+<ParamField body="addr" type="string" required>
+  The target socket address to connect to, as a `host:port` string. Must be
+  resolvable to a valid `SocketAddr`, for example `"127.0.0.1:8282"` or
+  `"0.0.0.0:9000"`.
+</ParamField>
+
+<ParamField body="variant" type="string | object" required>
+  The payload format to generate. See [supported payloads](#supported-payloads)
+  below.
+</ParamField>
+
+<ParamField body="maximum_prebuild_cache_size_bytes" type="string" required>
+  Maximum total size of the pre-built block cache. Accepts human-readable
+  byte values such as `"256 MiB"`. Must be greater than zero.
+</ParamField>
+
+<ParamField body="bytes_per_second" type="string">
+  Target throughput as a human-readable byte rate, for example `"500 MiB"`.
+  When multiple workers are used, the rate is divided evenly across them.
+  Mutually exclusive with `throttle`. When neither is set, the generator
+  runs as fast as possible.
+</ParamField>
+
+<ParamField body="maximum_block_size" type="string" default="system default">
+  Maximum size of a single block in the pre-built cache. Accepts
+  human-readable byte values.
+</ParamField>
+
+<ParamField body="parallel_connections" type="number" default="1">
+  Number of independent TCP worker tasks to spawn. Each worker maintains its
+  own connection and receives an equal share of the configured rate.
+</ParamField>
+
+<ParamField body="throttle" type="object">
+  Advanced throttle configuration. Mutually exclusive with `bytes_per_second`.
+
+  <Expandable title="throttle variants">
+    **`all_out`** — Send as fast as possible.
+
+    ```yaml
+    throttle: all_out
+    ```
+
+    **`stable`** — Maintain a constant rate.
+
+    ```yaml
+    throttle:
+      stable:
+        bytes_per_second: "100 MiB"
+        timeout_millis: 0
+    ```
+
+    **`linear`** — Ramp load linearly over time.
+
+    ```yaml
+    throttle:
+      linear:
+        initial: "10 MiB"
+        maximum: "500 MiB"
+        rate_of_change: "10 MiB"
+    ```
+  </Expandable>
+</ParamField>
+
+## Supported payloads
+
+| Variant | Description |
+|---|---|
+| `ascii` | Random printable ASCII text lines |
+| `json` | Random JSON-encoded lines |
+| `apache_common` | Apache Common Log Format lines |
+| `fluent` | Fluent (MessagePack) messages |
+| `syslog5424` | Syslog RFC 5424 messages |
+| `datadog_log` | Datadog Logs JSON messages |
+| `splunk_hec` | Splunk HEC JSON or text events |
+| `opentelemetry_traces` | OpenTelemetry trace data (protobuf) |
+| `opentelemetry_logs` | OpenTelemetry log data (protobuf) |
+| `opentelemetry_metrics` | OpenTelemetry metric data (protobuf) |
+| `dogstatsd` | DogStatsD metric payloads |
+| `trace_agent` | Datadog Trace Agent MsgPack payloads |
+| `static` | Content read from a file (single block) |
+| `static_chunks` | Content read from a file, chunked by line |
+| `templated_json` | JSON generated from a user-supplied YAML template |
+
+## Behavior notes
+
+- **Worker model**: Each `parallel_connections` value spawns an independent
+  `TcpWorker` task. Workers do not share a connection pool; each holds its own
+  `TcpStream`.
+- **Rate division**: The configured `bytes_per_second` (or `throttle`) is
+  divided equally across all workers. Setting `parallel_connections: 4` with
+  `bytes_per_second: "400 MiB"` gives each worker a 100 MiB/s budget.
+- **Reconnection**: When a write fails, the worker closes the connection,
+  increments `request_failure`, and attempts a new `TcpStream::connect` on the
+  next iteration. There is a 1-second back-off on connection failure.
+- **Shared block cache**: All workers share a single pre-built block cache,
+  which is constructed once at startup.
+- **Graceful shutdown**: Workers respond to the shutdown signal and stop after
+  the current write completes.
+
+<Warning>
+  Each failed write triggers a full TCP reconnect. If the target becomes
+  unavailable, workers will continuously attempt to reconnect every second.
+</Warning>
+
+## Emitted metrics
+
+| Metric | Description |
+|---|---|
+| `bytes_written` | Bytes sent successfully |
+| `packets_sent` | Blocks written successfully |
+| `request_failure` | Failed writes (each triggers a reconnect) |
+| `connection_failure` | Connection attempt failures |
+| `bytes_per_second` | Configured target rate |

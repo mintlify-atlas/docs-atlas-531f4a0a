@@ -1,0 +1,81 @@
+---
+title: "Apache Common Log"
+description: "Generates NCSA Common Log Format access log lines."
+---
+
+The `apache_common` payload produces lines in the [NCSA Common Log Format](https://en.wikipedia.org/wiki/Common_Log_Format), the standard access log format used by Apache HTTP Server and many other web servers.
+
+## Format
+
+Each line follows this structure:
+
+```
+host - user [day/month/year:hour:minute:second zone] "METHOD /path/to/resource PROTOCOL" status bytes
+```
+
+## Sample output
+
+```text
+192.168.1.42 - bravo [15/Mar/2022:08:23:11 0500] "GET /india/lima/foxtrot HTTP/1.1" 200 31842
+10.0.0.7 - november [02/Jul/2021:14:55:03 0900] "POST /delta HTTP/2.0" 404 1024
+172.16.0.1 - golf [28/Nov/2019:22:01:47 0000] "DELETE /alfa/bravo/charlie/delta HTTP/1.1" 503 8192
+```
+
+### Field details
+
+| Field | Description |
+|-------|-------------|
+| `host` | Random IPv4 address |
+| `user` | Random string identifier |
+| `timestamp` | Random date in `[DD/Mon/YYYY:HH:MM:SS ZZZZ]` format |
+| `method` | One of `GET`, `PUT`, `POST`, `DELETE`, `PATCH` |
+| `path` | Random 1–16 component path using NATO alphabet words |
+| `protocol` | One of `HTTP/1.0`, `HTTP/1.1`, `HTTP/1.2`, `HTTP/2.0`, `HTTP/2.1`, `HTTP/2.2` |
+| `status` | HTTP status code from the full standard set |
+| `bytes` | Random unsigned 16-bit integer |
+
+## Configuration
+
+`apache_common` has no configuration options. Specify it as a bare string:
+
+```yaml
+variant: apache_common
+```
+
+## Supported generators
+
+All generators that accept a `variant` field support `apache_common`: `http`, `tcp`, `udp`, `unix_stream`, `unix_datagram`, `grpc`, `file_gen`, and `passthru_file`.
+
+## Example
+
+```yaml
+generator:
+  - tcp:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      addr: "127.0.0.1:8080"
+      bytes_per_second: "10 MiB"
+      maximum_prebuild_cache_size_bytes: "100 MiB"
+      variant: apache_common
+
+blackhole:
+  - tcp:
+      binding_addr: "0.0.0.0:8080"
+```
+
+### HTTP generator
+
+```yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://127.0.0.1:8080/"
+      bytes_per_second: "10 MiB"
+      parallel_connections: 4
+      headers: {}
+      method:
+        post:
+          maximum_prebuild_cache_size_bytes: "50 MiB"
+          variant: apache_common
+```

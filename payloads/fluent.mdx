@@ -1,0 +1,65 @@
+---
+title: "Fluent Forward"
+description: "Generates Fluentd Forward Protocol v1 messages encoded as MessagePack."
+---
+
+The `fluent` payload produces messages conforming to the [Fluentd Forward Protocol Specification v1](https://github.com/fluent/fluentd/wiki/Forward-Protocol-Specification-v1). Messages are encoded in MessagePack binary format. Two message modes are generated at random: single `Message` entries and `Forward` entries containing a batch of 32 log records.
+
+## Format
+
+The payload is binary MessagePack. Two structures are emitted:
+
+- **Message**: A single record with `tag`, `time`, and `record` fields.
+- **Forward**: A batch entry with `tag` and an array of `Entry` objects (`time` + `record`).
+
+Each record contains a `message` key plus 0–127 randomly generated key-value pairs.
+
+## Configuration
+
+`fluent` has no configuration options. Specify it as a bare string:
+
+```yaml
+variant: fluent
+```
+
+## Supported generators
+
+All generators that accept a `variant` field support `fluent`: `http`, `tcp`, `udp`, `unix_stream`, `unix_datagram`, `grpc`, `file_gen`, and `passthru_file`.
+
+<Tip>
+  Fluent Forward Protocol is typically transported over TCP. Use the `tcp` generator for the most realistic test scenarios.
+</Tip>
+
+## Example
+
+```yaml
+generator:
+  - tcp:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      addr: "127.0.0.1:24224"
+      bytes_per_second: "5 MiB"
+      maximum_prebuild_cache_size_bytes: "128 MiB"
+      variant: fluent
+
+blackhole:
+  - tcp:
+      binding_addr: "0.0.0.0:24224"
+```
+
+### HTTP generator
+
+```yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://127.0.0.1:8080/"
+      bytes_per_second: "5 MiB"
+      parallel_connections: 2
+      headers: {}
+      method:
+        post:
+          maximum_prebuild_cache_size_bytes: "64 MiB"
+          variant: fluent
+```

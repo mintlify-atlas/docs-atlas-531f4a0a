@@ -1,0 +1,75 @@
+---
+title: 'Splunk HEC blackhole'
+description: 'A Splunk HTTP Event Collector (HEC) server that accepts event and raw data submissions and handles indexer acknowledgements.'
+---
+
+The Splunk HEC blackhole implements a minimal Splunk HTTP Event Collector server. It accepts POST requests on the standard HEC event, raw, and acknowledgement endpoints, responding with well-formed HEC JSON responses including monotonically increasing `ackId` values. All other paths receive a `200 OK` with an empty body. The server never applies backpressure to the target.
+
+<Note>
+  Blackholes never backpressure the target. Lading is designed to be faster than the system under test, so the blackhole accepts data as fast as the target sends it.
+</Note>
+
+## Supported endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/services/collector/event` | HEC event submission |
+| `POST` | `/services/collector/event/1.0` | HEC event submission (versioned) |
+| `POST` | `/services/collector/raw` | HEC raw submission |
+| `POST` | `/services/collector/raw/1.0` | HEC raw submission (versioned) |
+| `POST` | `/services/collector/ack` | Indexer acknowledgement query |
+
+## Configuration
+
+```yaml
+blackhole:
+  - splunk_hec:
+      binding_addr: "127.0.0.1:8088"
+      concurrent_requests_max: 100
+```
+
+### Fields
+
+<ParamField body="binding_addr" type="string" required>
+  IP address and port for the Splunk HEC server to bind to. Example: `"127.0.0.1:8088"`.
+</ParamField>
+
+<ParamField body="concurrent_requests_max" type="number" default="100">
+  Maximum number of concurrent HTTP connections to accept simultaneously.
+</ParamField>
+
+## Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `bytes_received` | Total bytes received in request bodies (labeled by component). |
+| `total_bytes_received` | Aggregated bytes received across all blackhole instances (unlabeled). |
+| `decoded_bytes_received` | Bytes after decompression when the request uses `Content-Encoding`. |
+| `requests_received` | Total number of HTTP requests accepted. |
+
+All per-component metrics carry `component=blackhole` and `component_name=splunk_hec` labels. If you set an `id` in the general blackhole config, an `id` label is added as well.
+
+## Typical generator pairings
+
+<Tip>
+  The Splunk HEC blackhole is designed specifically for agents and forwarders that send to a Splunk HEC endpoint and rely on HEC acknowledgements.
+</Tip>
+
+- **Splunk HEC generator** — the primary pairing; sends HEC-formatted event or raw payloads with optional acknowledgement polling
+
+### Example: Splunk HEC generator to Splunk HEC blackhole
+
+```yaml
+generator:
+  - splunk_hec:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://127.0.0.1:8088/"
+      bytes_per_second: "1 MiB"
+      parallel_connections: 1
+      variant: text
+
+blackhole:
+  - splunk_hec:
+      binding_addr: "127.0.0.1:8088"
+```

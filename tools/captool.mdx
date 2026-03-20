@@ -1,0 +1,170 @@
+---
+title: "captool"
+description: "Inspect and validate lading capture files from the command line."
+---
+
+`captool` is a command-line utility for inspecting and validating the capture files that lading produces during a run. It supports both JSONL and Parquet formats and automatically detects the format from the file.
+
+## Synopsis
+
+```bash
+captool [OPTIONS] [CAPTURE_PATH]
+captool validate [OPTIONS] <CAPTURE_PATH>
+```
+
+## Installation
+
+`captool` is built alongside `lading`. When you build the lading workspace, the `captool` binary is produced in the same target directory:
+
+```bash
+cargo build --release --bin captool
+./target/release/captool --help
+```
+
+## Global flags
+
+<ParamField path="capture_path" type="string">
+  Path to the capture file (JSONL or Parquet). Required unless using the `validate` subcommand.
+</ParamField>
+
+<ParamField path="-l, --list-metrics" type="boolean">
+  List all metric names present in the capture file. This is the default behavior when no other option is given.
+</ParamField>
+
+<ParamField path="-m, --metric" type="string">
+  Show statistics about a specific metric name. Outputs min, mean, max, and whether the series is monotonically increasing.
+</ParamField>
+
+<ParamField path="-d, --dump-values" type="boolean">
+  Dump all raw values for the metric specified by `--metric`. Each value is printed as `fetch_index: value`. Requires `--metric`.
+</ParamField>
+
+## Subcommands
+
+### validate
+
+Validates that a capture file is well-formed and satisfies lading's correctness invariants.
+
+```bash
+captool validate [--min-seconds <N>] <CAPTURE_PATH>
+```
+
+<ParamField path="capture_path" type="string" required>
+  Path to the capture file to validate.
+</ParamField>
+
+<ParamField path="--min-seconds" type="number">
+  Minimum number of unique timestamps (seconds) that must be present in the file. If the file contains fewer, validation fails.
+</ParamField>
+
+The validator checks three invariants:
+
+1. Each `fetch_index` value maps to exactly one `time` value.
+2. For each metric series (metric name + label set), timestamps are strictly increasing.
+3. For each metric series, `fetch_index` values are strictly increasing.
+
+If `--min-seconds` is specified, an additional check verifies that the file covers at least that many unique seconds.
+
+**Exit codes**: `0` on success, `1` on validation failure.
+
+## Examples
+
+### List all metrics in a capture file
+
+```bash
+captool capture.json
+```
+
+```
+g: lading.running
+g: observer.cpu.percentage
+g: observer.memory.rss
+g: observer.memory.vsz
+g: observer.num_fds
+c: generator.bytes_written
+c: blackhole.bytes_received
+c: blackhole.total_bytes_received
+```
+
+The prefix indicates the metric kind: `g` for gauge, `c` for counter.
+
+### Show statistics for a metric
+
+```bash
+captool --metric observer.memory.rss capture.json
+```
+
+Logs statistics for each label set found for that metric:
+
+```
+observer.memory.rss[pid=12345]: min: 94371840, mean: 101234688, max: 109051904, is_monotonic: false
+```
+
+### Dump raw values for a metric
+
+```bash
+captool --metric observer.memory.rss --dump-values capture.json
+```
+
+```
+1: 94371840
+2: 97517568
+3: 99614720
+4: 101711872
+5: 104857600
+```
+
+Each line is `fetch_index: value`.
+
+### Validate a capture file
+
+```bash
+captool validate capture.json
+```
+
+```
+Validated 3600 lines
+  Unique series: 8
+  Unique fetch_index values: 120
+All invariants satisfied:
+  - Each fetch_index maps to exactly one time
+  - Each series has strictly increasing time
+  - Each series has strictly increasing fetch_index
+Capture file is valid
+```
+
+### Validate with a minimum duration requirement
+
+```bash
+captool validate --min-seconds 60 capture.json
+```
+
+Fails with a non-zero exit code if fewer than 60 seconds of data are present.
+
+### Working with Parquet files
+
+`captool` automatically detects Parquet format:
+
+```bash
+captool capture.parquet
+captool --metric observer.memory.rss capture.parquet
+captool validate capture.parquet
+```
+
+## Metric kinds
+
+Capture files contain three kinds of metrics:
+
+| Kind | Symbol | Description |
+|---|---|---|
+| Counter | `c` | Monotonically increasing value (e.g., bytes sent). |
+| Gauge | `g` | Point-in-time value (e.g., RSS memory). |
+| Histogram | `h` | DDSketch histogram distribution (serialized as protobuf). |
+
+## Log verbosity
+
+`captool` uses `RUST_LOG` for log verbosity:
+
+```bash
+RUST_LOG=debug captool --metric observer.memory.rss capture.json
+```

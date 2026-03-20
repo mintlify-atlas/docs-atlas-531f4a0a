@@ -1,0 +1,76 @@
+---
+title: 'Datadog blackhole'
+description: 'A Datadog agent intake API server that accepts protobuf-encoded V2 metric payloads and records them using historical timestamps.'
+---
+
+The Datadog blackhole implements the Datadog agent V2 metrics intake API. It accepts POST requests carrying protobuf-encoded `MetricPayload` messages at `/api/v2/series`. Metrics are decoded, decompressed if needed, and recorded into lading's historical capture system using the original timestamps embedded in the payload rather than the wall-clock arrival time. All other endpoints return `202 Accepted` without further processing. Only POST requests are accepted; other methods return `405 Method Not Allowed`. The server never applies backpressure to the target.
+
+<Note>
+  Blackholes never backpressure the target. Lading is designed to be faster than the system under test, so the blackhole accepts data as fast as the target sends it.
+</Note>
+
+## Supported endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v2/series` | V2 protobuf metric payload (COUNT, RATE, GAUGE) |
+| `POST` | `*` | All other POST paths return `202 Accepted` |
+
+## Supported compression
+
+The blackhole automatically decompresses request bodies encoded with `gzip`, `deflate`, or `zstd`.
+
+## Configuration
+
+```yaml
+blackhole:
+  - datadog:
+      v2:
+        binding_addr: "127.0.0.1:9091"
+```
+
+### Fields
+
+<ParamField body="v2" type="object" required>
+  Configures the Datadog V2 intake API variant.
+
+  <Expandable title="v2 properties">
+    <ParamField body="binding_addr" type="string" required>
+      IP address and port for the HTTP server to bind to. Example: `"127.0.0.1:9091"`.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `bytes_received` | Total bytes received in request bodies (labeled by component). |
+| `total_bytes_received` | Aggregated bytes received across all blackhole instances (unlabeled). |
+| `requests_received` | Total number of HTTP requests accepted. |
+| `datadog_intake_payloads_parsed` | Number of protobuf `MetricPayload` messages successfully decoded. |
+| `datadog_intake_parse_failures` | Number of protobuf payloads that failed to decode. |
+
+All per-component metrics carry `component=blackhole` and `component_name=datadog` labels. If you set an `id` in the general blackhole config, an `id` label is added as well.
+
+<Note>
+  Metrics from the parsed payload are recorded via lading's historical capture system with their original agent timestamps, not the arrival time. This enables accurate performance measurement of metric pipelines.
+</Note>
+
+## Typical generator pairings
+
+<Tip>
+  The Datadog blackhole is designed to sit downstream of a Datadog Agent or compatible forwarder and measure its metrics output throughput.
+</Tip>
+
+- **HTTP generator** — can send raw protobuf-encoded Datadog metric payloads over HTTP POST
+- **Datadog Agent target** — the typical setup is a Datadog Agent as the target, forwarding to this blackhole
+
+### Example: Datadog V2 blackhole
+
+```yaml
+blackhole:
+  - datadog:
+      v2:
+        binding_addr: "127.0.0.1:9091"
+```

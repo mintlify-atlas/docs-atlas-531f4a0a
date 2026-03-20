@@ -1,0 +1,113 @@
+---
+title: "Generators"
+description: "How lading generators produce deterministic, rate-controlled load and push it into the target."
+keywords: ["generator", "load generation", "seed", "block cache", "throughput", "bytes_per_second"]
+---
+
+A generator pushes synthetic load into the target process. lading supports multiple generator types, each sending data over a different protocol. You can run multiple generators simultaneously.
+
+## How generators work
+
+Every generator follows the same lifecycle:
+
+1. **Initialization** — the generator reads its configuration, seeds its RNG, and builds a block cache of pre-serialized payload bytes.
+2. **Steady state** — the generator cycles through the cache, sending blocks to the target at the configured rate.
+3. **Shutdown** — when lading receives a shutdown signal, the generator stops and the experiment ends.
+
+The critical property is that all CPU-intensive work happens in step 1. In step 2 the generator only reads from memory and writes to the network or filesystem — no allocation, no serialization.
+
+## Block cache (pre-computation model)
+
+Each generator builds a pool of payload blocks at startup. The total size of this pool is bounded by `maximum_prebuild_cache_size_bytes`. When the pool is full, the generator cycles back to the first block and continues sending.
+
+```yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://localhost:8080/"
+      bytes_per_second: "50 MiB"
+      method:
+        post:
+          variant: "fluent"
+          maximum_prebuild_cache_size_bytes: "256 MiB"
+```
+
+The trade-off: more cache memory means greater payload variety before a cycle repeats, at the cost of higher resident memory use.
+
+<Info>
+See [Payloads](/concepts/payloads) for a full description of block cache construction and the supported payload formats.
+</Info>
+
+## Seeds and determinism
+
+Every generator requires a seed — a 32-byte array that initializes the RNG used for all payload generation. Given the same seed and configuration, the generator produces byte-identical output across every run.
+
+```yaml
+seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59,
+       61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+```
+
+If you omit the seed, lading generates one automatically and logs it at startup, so you can reproduce the run later.
+
+<Warning>
+Never use wall-clock time or `thread_rng` in payload generation. All randomness must flow through the seeded RNG provided in configuration.
+</Warning>
+
+## Throughput control
+
+Generators are rate-limited by a throttle. The throttle configuration maps onto a `bytes_per_second` target. lading uses microsecond-resolution intervals internally — one interval tick equals one microsecond, and capacity accumulates at the configured byte rate.
+
+Three throttle modes are available:
+
+| Mode | Behavior |
+|---|---|
+| `stable` | Holds a fixed rate throughout the experiment |
+| `linear` | Ramps from an initial rate up to a maximum rate |
+| `all_out` | Sends as fast as possible with no rate limit |
+
+See [Throttling](/concepts/throttling) for configuration details.
+
+## Generator types
+
+<CardGroup cols={2}>
+  <Card title="HTTP" icon="globe" href="/generators/http">
+    Sends HTTP POST requests. Supports multiple payload variants including Fluent, DogStatsD, and raw bytes.
+  </Card>
+  <Card title="gRPC" icon="network-wired" href="/generators/grpc">
+    Sends unary gRPC requests using a user-supplied proto definition or a built-in service.
+  </Card>
+  <Card title="TCP" icon="plug" href="/generators/tcp">
+    Streams raw bytes over a TCP connection.
+  </Card>
+  <Card title="UDP" icon="wifi" href="/generators/udp">
+    Sends datagrams over UDP. Useful for DogStatsD and syslog targets.
+  </Card>
+  <Card title="Unix stream" icon="terminal" href="/generators/unix-stream">
+    Streams bytes over a Unix domain socket (SOCK_STREAM).
+  </Card>
+  <Card title="Unix datagram" icon="terminal" href="/generators/unix-datagram">
+    Sends datagrams over a Unix domain socket (SOCK_DGRAM).
+  </Card>
+  <Card title="Splunk HEC" icon="database" href="/generators/splunk-hec">
+    Sends events to a Splunk HTTP Event Collector endpoint.
+  </Card>
+  <Card title="File gen" icon="file" href="/generators/file-gen">
+    Writes payload data to files on disk. Useful for targets that tail log files.
+  </Card>
+  <Card title="File tree" icon="folder-tree" href="/generators/file-tree">
+    Creates and populates a directory tree of files.
+  </Card>
+  <Card title="Process tree" icon="sitemap" href="/generators/process-tree">
+    Spawns a tree of child processes to generate CPU and memory load.
+  </Card>
+  <Card title="Trace agent" icon="chart-line" href="/generators/trace-agent">
+    Sends Datadog Trace Agent v0.4 payloads in MsgPack format.
+  </Card>
+  <Card title="Container" icon="box" href="/generators/container">
+    Generates load against a containerized target via Docker.
+  </Card>
+  <Card title="Kubernetes" icon="dharmachakra" href="/generators/kubernetes">
+    Generates load within a Kubernetes environment.
+  </Card>
+</CardGroup>

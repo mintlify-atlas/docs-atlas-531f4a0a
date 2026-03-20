@@ -1,0 +1,79 @@
+---
+title: "Syslog RFC 5424"
+description: "Generates syslog messages conforming to RFC 5424."
+---
+
+The `syslog5424` payload produces syslog messages in the [RFC 5424](https://datatracker.ietf.org/doc/html/rfc5424) format. Each line is a complete, self-contained syslog message.
+
+## Format
+
+Messages follow the RFC 5424 structure:
+
+```
+<priority>version timestamp hostname app-name procid msgid - structured-data-message
+```
+
+| Field | Description |
+|-------|-------------|
+| `priority` | Integer 0–191 (facility × 8 + severity) |
+| `version` | Syslog version, 1–3 |
+| `timestamp` | RFC 3339 timestamp, randomly chosen between 2020 and 2030 |
+| `hostname` | One of `troutwine.us`, `vector.dev`, `skullmountain.us`, `zombo.com` |
+| `app-name` | One of `vector`, `cernan`, `lading`, `execsnoop` |
+| `procid` | Integer 100–9999 |
+| `msgid` | Integer 1–999, prefixed with `ID` |
+| `structured-data` | `-` (empty, as defined by RFC 5424) |
+| `message` | JSON object with orbital mechanics fields |
+
+## Sample output
+
+```text
+<143>2 2024-07-15T09:23:41Z troutwine.us vector 4821 ID237 - {"eccentricity":2847361928,"semimajor_axis":1029384756,"inclination":0.6231,"longitude_of_ascending_node":987654321,"periapsis":8273645019283746501,"true_anomaly":42}
+<14>1 2021-03-02T18:55:03Z zombo.com cernan 9124 ID88 - {"eccentricity":1234567890,"semimajor_axis":9876543210,"inclination":0.1234,"longitude_of_ascending_node":1029384756,"periapsis":1029384756102938475,"true_anomaly":255}
+```
+
+## Configuration
+
+`syslog5424` has no configuration options. Specify it as a bare string:
+
+```yaml
+variant: syslog5424
+```
+
+## Supported generators
+
+All generators that accept a `variant` field support `syslog5424`: `http`, `tcp`, `udp`, `unix_stream`, `unix_datagram`, `grpc`, `file_gen`, and `passthru_file`.
+
+## Example
+
+```yaml
+generator:
+  - tcp:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      addr: "127.0.0.1:514"
+      bytes_per_second: "5 MiB"
+      maximum_prebuild_cache_size_bytes: "64 MiB"
+      variant: syslog5424
+
+blackhole:
+  - tcp:
+      binding_addr: "0.0.0.0:514"
+```
+
+### UDP syslog
+
+```yaml
+generator:
+  - udp:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      addr: "127.0.0.1:514"
+      bytes_per_second: "1 MiB"
+      maximum_prebuild_cache_size_bytes: "32 MiB"
+      variant: syslog5424
+
+blackhole:
+  - udp:
+      binding_addr: "0.0.0.0:514"
+```

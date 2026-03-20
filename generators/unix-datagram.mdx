@@ -1,0 +1,159 @@
+---
+title: "Unix datagram generator"
+description: "Generate deterministic load over Unix Domain Socket datagram connections."
+---
+
+The Unix datagram generator connects an unbound Unix Domain Socket to a target socket path and sends pre-built payload blocks as individual datagrams. Each block is sent as a complete, atomic datagram — partial sends are not retried.
+
+## Configuration example
+
+```yaml
+generator:
+  - unix_datagram:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      path: /var/run/my-agent/dsd.sock
+      variant: dogstatsd
+      bytes_per_second: "5 MiB"
+      maximum_prebuild_cache_size_bytes: "16 MiB"
+      parallel_connections: 1
+```
+
+## Configuration fields
+
+<ParamField body="seed" type="number[]" required>
+  A 32-byte array used to seed all random operations. The same seed always
+  produces the same sequence of payloads.
+</ParamField>
+
+<ParamField body="path" type="string" required>
+  Filesystem path of the Unix Domain Socket to send datagrams to. For example
+  `/var/run/agent/dsd.sock`.
+</ParamField>
+
+<ParamField body="variant" type="string | object" required>
+  The payload format to generate. See [supported payloads](#supported-payloads)
+  below.
+</ParamField>
+
+<ParamField body="maximum_prebuild_cache_size_bytes" type="string" required>
+  Maximum total size of the pre-built block cache. Accepts human-readable
+  byte values such as `"16 MiB"`. Must be greater than zero.
+</ParamField>
+
+<ParamField body="bytes_per_second" type="string">
+  Target throughput as a human-readable byte rate, for example `"5 MiB"`.
+  Each connection gets its own independent throttle at this rate.
+  Mutually exclusive with `throttle`. When neither is set, the generator
+  runs as fast as possible.
+</ParamField>
+
+<ParamField body="block_sizes" type="string[]">
+  Optional list of explicit block sizes for messages sent to this target.
+  Accepts human-readable byte values. When set, blocks are sized according
+  to this list rather than the cache-based sizing.
+</ParamField>
+
+<ParamField body="maximum_block_size" type="string" default="8192 B">
+  Maximum size of a single datagram payload. Defaults to 8192 bytes, which
+  mirrors the Datadog Agent's assumed maximum Unix socket datagram size.
+  Accepts human-readable byte values.
+</ParamField>
+
+<ParamField body="block_cache_method" type="string" default="fixed">
+  Strategy for building the block cache. Only `fixed` is currently supported.
+</ParamField>
+
+<ParamField body="parallel_connections" type="number" default="1">
+  Number of independent datagram worker tasks to spawn. Each worker connects
+  its own socket and receives an independent throttle at the configured rate.
+</ParamField>
+
+<ParamField body="throttle" type="object">
+  Advanced throttle configuration. Mutually exclusive with `bytes_per_second`.
+
+  <Expandable title="throttle variants">
+    **`all_out`** — Send as fast as possible.
+
+    ```yaml
+    throttle: all_out
+    ```
+
+    **`stable`** — Maintain a constant rate.
+
+    ```yaml
+    throttle:
+      stable:
+        bytes_per_second: "5 MiB"
+        timeout_millis: 0
+    ```
+
+    **`linear`** — Ramp load linearly over time.
+
+    ```yaml
+    throttle:
+      linear:
+        initial: "1 MiB"
+        maximum: "20 MiB"
+        rate_of_change: "1 MiB"
+    ```
+  </Expandable>
+</ParamField>
+
+## Supported payloads
+
+<Warning>
+  Each block is sent as a single, atomic datagram. Partial sends are not
+  retried. Keep `maximum_block_size` within the kernel's Unix socket datagram
+  limit (typically 8 KiB on Linux). The default of 8192 bytes is safe for most
+  systems.
+</Warning>
+
+| Variant | Description |
+|---|---|
+| `dogstatsd` | DogStatsD metric payloads |
+| `ascii` | Random printable ASCII text lines |
+| `json` | Random JSON-encoded lines |
+| `apache_common` | Apache Common Log Format lines |
+| `fluent` | Fluent (MessagePack) messages |
+| `syslog5424` | Syslog RFC 5424 messages |
+| `datadog_log` | Datadog Logs JSON messages |
+| `splunk_hec` | Splunk HEC JSON or text events |
+| `opentelemetry_traces` | OpenTelemetry trace data (protobuf) |
+| `opentelemetry_logs` | OpenTelemetry log data (protobuf) |
+| `opentelemetry_metrics` | OpenTelemetry metric data (protobuf) |
+| `trace_agent` | Datadog Trace Agent MsgPack payloads |
+| `static` | Content read from a file (single block) |
+| `static_chunks` | Content read from a file, chunked by line |
+| `templated_json` | JSON generated from a user-supplied YAML template |
+
+## Behavior notes
+
+- **Unbound socket**: The generator creates an unbound `UnixDatagram` socket
+  (no source path on the filesystem) and calls `connect` to associate it with
+  the target path. This avoids leaving stale socket files on disk.
+- **Atomic send**: Each block is sent with a single `socket.send` call. If only
+  a subset of bytes is delivered, the remainder is discarded — the generator
+  does not attempt to send the rest of the block. This is intentional: sending
+  a sheared block across multiple datagrams would corrupt the payload framing.
+- **No reconnect on send failure**: Unlike the Unix stream generator, a failed
+  send does not trigger reconnection. The error is counted and the next block
+  is attempted on the same socket.
+- **Startup coordination**: All connection tasks wait for a startup broadcast
+  before beginning to send, ensuring all workers start simultaneously.
+- **Connection retry**: If `connect` fails, the worker retries every 1 second
+  until it succeeds.
+- **Shared block cache**: All workers share a single pre-built block cache.
+- **Default block size**: The 8192-byte default mirrors the maximum datagram
+  size assumed by the Datadog Agent on Linux. Adjust `maximum_block_size` only
+  if your target supports larger datagrams.
+
+## Emitted metrics
+
+| Metric | Description |
+|---|---|
+| `bytes_written` | Bytes sent successfully |
+| `packets_sent` | Datagrams sent successfully |
+| `request_failure` | Failed send attempts |
+| `connection_failure` | Socket connection failures |
+| `bytes_per_second` | Configured target rate |

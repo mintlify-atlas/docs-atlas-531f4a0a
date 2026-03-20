@@ -1,0 +1,186 @@
+---
+title: "CLI reference"
+description: "Complete reference for all lading command-line flags and environment variables."
+---
+
+The `lading` binary accepts configuration via command-line flags and the `LADING_CONFIG` environment variable. Generators, blackholes, and payload configuration live in a YAML file; target selection and telemetry are controlled from the command line.
+
+## Usage
+
+```bash
+lading [--json-logs] run [OPTIONS] [TARGET_ARGUMENTS]...
+lading [--json-logs] config-check [--config-path <PATH>]
+```
+
+Lading also accepts the legacy flat form (all flags without a subcommand) for backward compatibility.
+
+## Subcommands
+
+<ParamField path="run" type="subcommand">
+  Run lading with the specified configuration. This is the default operation mode.
+</ParamField>
+
+<ParamField path="config-check" type="subcommand">
+  Validate the configuration file and exit. Exits with code `0` if the configuration is valid, `1` otherwise. Accepts `--config-path`.
+</ParamField>
+
+## Global flags
+
+<ParamField path="--json-logs" type="boolean" default="false">
+  Emit log output as structured JSON instead of plain text. Useful when a log aggregator expects JSON.
+</ParamField>
+
+## Configuration
+
+<ParamField path="--config-path" type="string" default="/etc/lading/lading.yaml">
+  Path to a lading YAML configuration file, or to a directory containing multiple YAML files. When a directory is given, lading merges all `.yaml` files in that directory. Merged files must be disjoint (no duplicate top-level keys).
+
+  Can also be set via the `LADING_CONFIG` environment variable (see below).
+</ParamField>
+
+<ParamField path="--global-labels" type="string">
+  Comma-separated `KEY=VALUE` pairs to attach to every metric in the capture file or Prometheus output. Example: `experiment=baseline,version=1.2.3`.
+</ParamField>
+
+## Target selection
+
+Exactly one of the following target flags must be provided.
+
+<ParamField path="--target-path" type="string">
+  Path to the target executable. Lading launches the target as a subprocess, monitors its resource usage, and forwards its stdout and stderr as configured.
+</ParamField>
+
+<ParamField path="--target-pid" type="number">
+  PID of a running process to monitor. Lading does not launch or manage the process; it only observes it. The target should be started before lading and stopped after lading exits.
+</ParamField>
+
+<ParamField path="--target-container" type="string">
+  Name of a running Docker container to monitor. Lading polls the Docker socket to find the container's PID, then observes the process. Requires access to the Docker socket.
+</ParamField>
+
+<ParamField path="--no-target" type="boolean">
+  Disable target measurement entirely. Lading still runs generators and blackholes. Use this when you only need to generate load or run a blackhole without observing a specific process.
+</ParamField>
+
+## Binary target options
+
+These flags apply only when `--target-path` is used.
+
+<ParamField path="target_arguments" type="string[]">
+  Positional arguments passed to the target executable. Example: `lading run --target-path /usr/bin/agent -- --config /etc/agent/config.yaml`.
+</ParamField>
+
+<ParamField path="--target-stdout-path" type="string" default="quiet">
+  Path on disk to write the target's stdout. Defaults to `quiet`, which discards the output. Set to a file path to capture it.
+</ParamField>
+
+<ParamField path="--target-stderr-path" type="string" default="quiet">
+  Path on disk to write the target's stderr. Defaults to `quiet`, which discards the output. Set to a file path to capture it.
+</ParamField>
+
+<ParamField path="--target-inherit-environment" type="boolean" default="false">
+  Inherit lading's environment variables and pass them to the target subprocess.
+</ParamField>
+
+<ParamField path="--target-environment-variables" type="string">
+  Additional environment variables to pass to the target, in `KEY=VALUE,...` format.
+</ParamField>
+
+## Telemetry
+
+Exactly one telemetry option must be configured. It can be provided via CLI flags, in the YAML config file, or a combination of both.
+
+<ParamField path="--capture-path" type="string">
+  Path on disk to write the capture file. The format is controlled by `--capture-format`.
+</ParamField>
+
+<ParamField path="--capture-format" type="string" default="jsonl">
+  Capture file format. One of:
+  - `jsonl` — Newline-delimited JSON (default).
+  - `parquet` — Apache Parquet columnar format.
+  - `multi` — Write both JSONL and Parquet simultaneously.
+</ParamField>
+
+<ParamField path="--capture-flush-seconds" type="number" default="60">
+  Interval in seconds between capture file flushes.
+</ParamField>
+
+<ParamField path="--capture-compression-level" type="number" default="3">
+  Zstd compression level for Parquet output (range: 1–22). Only used when `--capture-format` is `parquet` or `multi`.
+</ParamField>
+
+<ParamField path="--capture-expiriation-seconds" type="number">
+  Time in seconds after which capture metrics expire if not updated. Only relevant when `--capture-path` is set. Defaults to the maximum u64 value (effectively never).
+</ParamField>
+
+<ParamField path="--prometheus-addr" type="string">
+  Address to bind the Prometheus HTTP exporter to. Example: `0.0.0.0:9090`. Mutually exclusive with `--prometheus-path` and `--capture-path`.
+</ParamField>
+
+<ParamField path="--prometheus-path" type="string">
+  Path to a Unix domain socket for the Prometheus exporter. Mutually exclusive with `--prometheus-addr` and `--capture-path`.
+</ParamField>
+
+## Experiment timing
+
+<ParamField path="--warmup-duration-seconds" type="number" default="30">
+  Time in seconds to allow the target to run before recording samples. Load is generated during warm-up, but no data is written to the capture file.
+</ParamField>
+
+<ParamField path="--experiment-duration-seconds" type="number" default="120">
+  Time in seconds to run the experiment and collect samples. After this period, lading initiates a controlled shutdown.
+</ParamField>
+
+<ParamField path="--experiment-duration-infinite" type="boolean" default="false">
+  Run indefinitely. Mutually exclusive with `--experiment-duration-seconds`. Lading runs until it receives a signal (e.g., SIGINT).
+</ParamField>
+
+<ParamField path="--max-shutdown-delay" type="number" default="30">
+  Maximum time in seconds to wait for a controlled shutdown before the runtime is forcibly stopped.
+</ParamField>
+
+## Inspector
+
+<ParamField path="--disable-inspector" type="boolean" default="false">
+  Ignore any `inspector` configuration present in the YAML file and do not run the inspector sub-process.
+</ParamField>
+
+## Environment variables
+
+<ParamField path="RUST_LOG" type="string" default="error">
+  Controls log verbosity using the standard `tracing` filter syntax. Valid level values are `error`, `warn`, `info`, `debug`, and `trace`.
+
+  Examples:
+
+  ```bash
+  # Enable info-level logs globally
+  RUST_LOG=info lading ...
+
+  # Enable debug logs only for lading crate
+  RUST_LOG=lading=debug lading ...
+  ```
+</ParamField>
+
+<ParamField path="LADING_CONFIG" type="string">
+  Full YAML configuration content as a string. When set, lading uses this value instead of reading from `--config-path`. Useful in container environments where mounting a config file is inconvenient.
+
+  ```bash
+  LADING_CONFIG="$(cat lading.yaml)" lading --no-target --capture-path /tmp/capture.json
+  ```
+</ParamField>
+
+## Complete example
+
+```bash
+lading run \
+  --config-path /etc/lading/lading.yaml \
+  --target-path /usr/bin/my-agent \
+  --target-stdout-path /var/log/agent-stdout.log \
+  --target-stderr-path /var/log/agent-stderr.log \
+  --capture-path /var/run/lading/capture.json \
+  --capture-format parquet \
+  --global-labels "experiment=throughput,version=1.2.3" \
+  --warmup-duration-seconds 60 \
+  --experiment-duration-seconds 300 \
+  -- --agent-config /etc/agent/config.yaml
+```

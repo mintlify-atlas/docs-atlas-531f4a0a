@@ -1,0 +1,265 @@
+---
+title: "Running on Kubernetes"
+description: "Deploy lading as a sidecar container to measure the performance of a target running in your Kubernetes cluster."
+---
+
+The recommended pattern for using lading on Kubernetes is to run it as a **sidecar container** in the same pod as your target. Both containers share the same network namespace, so lading can communicate with the target over `localhost`.
+
+## Overview
+
+The deployment involves:
+
+1. A `ConfigMap` containing the lading YAML configuration.
+2. A `Pod` (or `Deployment`) with lading and your target as containers.
+3. Optionally, RBAC resources if lading needs Kubernetes API access (for the Kubernetes generator).
+
+## Sidecar pod manifest
+
+The following manifest deploys lading alongside a target container. Lading reads its config from a `ConfigMap` mounted as a volume.
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lading-config
+  namespace: default
+data:
+  lading.yaml: |
+    generator:
+      - http:
+          seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+          target_uri: "http://localhost:8080/"
+          bytes_per_second: "10 MiB"
+          parallel_connections: 4
+          method:
+            post:
+              maximum_prebuild_cache_size_bytes: "64 MiB"
+              variant: "ascii"
+          headers: {}
+    blackhole:
+      - http:
+          binding_addr: "0.0.0.0:9000"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: lading-sidecar-example
+  namespace: default
+spec:
+  containers:
+    - name: target
+      image: my-target:latest
+      ports:
+        - containerPort: 8080
+
+    - name: lading
+      image: ghcr.io/datadog/lading:latest
+      args:
+        - --config-path=/etc/lading/lading.yaml
+        - --no-target
+        - --capture-path=/output/capture.json
+        - --experiment-duration-seconds=120
+        - --warmup-duration-seconds=30
+      volumeMounts:
+        - name: lading-config
+          mountPath: /etc/lading
+        - name: output
+          mountPath: /output
+      resources:
+        requests:
+          memory: "512Mi"
+          cpu: "500m"
+        limits:
+          memory: "2Gi"
+          cpu: "2000m"
+
+  volumes:
+    - name: lading-config
+      configMap:
+        name: lading-config
+    - name: output
+      emptyDir: {}
+```
+
+<Tip>
+Allocate sufficient memory for lading. By default the HTTP generator pre-builds payload blocks in memory. A `maximum_prebuild_cache_size_bytes` of `64 MiB` requires at least that much headroom in lading's memory limit.
+</Tip>
+
+## Container watch mode
+
+If you cannot use a sidecar (for example, when the target is managed by an operator and you cannot modify the pod spec), use **container watch mode**. Lading polls the Docker socket to find the target container's PID and observes it externally.
+
+This requires:
+- Access to the Docker socket or the container runtime socket.
+- The target container name passed via `--target-container`.
+
+```yaml
+- name: lading
+  image: ghcr.io/datadog/lading:latest
+  args:
+    - --config-path=/etc/lading/lading.yaml
+    - --target-container=my-target-container
+    - --capture-path=/output/capture.json
+  volumeMounts:
+    - name: lading-config
+      mountPath: /etc/lading
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+    - name: output
+      mountPath: /output
+volumes:
+  - name: docker-sock
+    hostPath:
+      path: /var/run/docker.sock
+      type: Socket
+```
+
+## Kubernetes generator
+
+Lading includes a `kubernetes` generator that creates and deletes Kubernetes resources (nodes, namespaces, pods, deployments, services) at a configured rate. This is useful for testing controllers and operators that react to Kubernetes API events.
+
+The generator requires a `ServiceAccount` with RBAC permissions to manage the resources it creates.
+
+### RBAC setup
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lading
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: lading
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "pods"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lading
+subjects:
+  - kind: ServiceAccount
+    name: lading
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: lading
+  apiGroup: rbac.authorization.k8s.io
+```
+
+### Kubernetes generator config
+
+This example config exercises multiple resource types simultaneously:
+
+```yaml
+generator:
+  - kubernetes:
+      manifest:
+        node: |
+          apiVersion: v1
+          kind: Node
+          metadata:
+            annotations:
+              node.alpha.kubernetes.io/ttl: "0"
+              kwok.x-k8s.io/node: fake
+            labels:
+              kubernetes.io/arch: amd64
+              kubernetes.io/hostname: kwok-node
+              type: kwok
+            name: kwok-node
+          spec:
+            taints:
+              - effect: NoSchedule
+                key: kwok.x-k8s.io/node
+                value: fake
+          status:
+            allocatable:
+              cpu: 32
+              memory: 256Gi
+              pods: 110
+            capacity:
+              cpu: 32
+              memory: 256Gi
+              pods: 110
+            phase: Running
+      concurrent_instances: 10
+
+  - kubernetes:
+      manifest:
+        pod: |
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            namespace: foobar
+          spec:
+            containers:
+              - name: sleep
+                image: busybox
+                command: ["sleep", "infinity"]
+      max_instance_lifetime_seconds: 20
+      concurrent_instances: 2
+```
+
+`concurrent_instances` controls how many copies of the resource exist simultaneously. `max_instance_lifetime_seconds` causes lading to delete and recreate each instance on a timer, simulating churn.
+
+<Note>
+The Kubernetes generator is designed for use with [kwok](https://kwok.sigs.k8s.io/), a tool for simulating large Kubernetes clusters without real compute. Nodes created with kwok annotations are fake and do not schedule real workloads.
+</Note>
+
+## Accessing Prometheus metrics
+
+Expose lading's Prometheus endpoint as a container port and scrape it with your monitoring stack:
+
+```yaml
+- name: lading
+  image: ghcr.io/datadog/lading:latest
+  args:
+    - --config-path=/etc/lading/lading.yaml
+    - --no-target
+    - --prometheus-addr=0.0.0.0:9090
+  ports:
+    - containerPort: 9090
+      name: metrics
+```
+
+Then add a Prometheus scrape annotation to the pod:
+
+```yaml
+metadata:
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+```
+
+## Experiment timing
+
+Lading runs for a fixed duration controlled by two flags:
+
+- `--warmup-duration-seconds` (default: 30) — lading generates load but does not record samples.
+- `--experiment-duration-seconds` (default: 120) — lading records samples and then shuts down.
+
+Design your pod lifecycle around these values. After lading exits, your pod will enter a completed state unless the target container is still running.
+
+## Retrieving capture files
+
+To retrieve capture files from a completed pod, either:
+
+- Mount a `PersistentVolumeClaim` to `/output` and read the file after the pod completes.
+- Use an init container or a sidecar that uploads the file to object storage on completion.
+- Use `kubectl cp` while the pod is still running:
+
+```bash
+kubectl cp default/lading-sidecar-example:output/capture.json ./capture.json
+```

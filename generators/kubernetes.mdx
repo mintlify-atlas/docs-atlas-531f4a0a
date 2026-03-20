@@ -1,0 +1,173 @@
+---
+title: 'Kubernetes generator'
+description: 'Create and recycle Kubernetes resources to stress Kubernetes-monitoring tools.'
+---
+
+The Kubernetes generator creates Kubernetes resources from raw YAML manifests and recycles them at a configurable rate. It is designed to stress Kubernetes monitoring tools such as the Datadog Cluster Agent, kube-state-metrics, and any software that processes the Kubernetes API event stream.
+
+<Warning>
+  The Kubernetes generator requires a valid `kubeconfig` or in-cluster service account credentials. It connects directly to the Kubernetes API server.
+</Warning>
+
+## Configuration example
+
+Multiple generator instances can be declared in a single lading configuration to create different resource types simultaneously:
+
+```yaml
+generator:
+  # Create 10 fake nodes (requires kwok or similar)
+  - kubernetes:
+      manifest:
+        node: |
+          apiVersion: v1
+          kind: Node
+          metadata:
+            name: kwok-node
+            labels:
+              type: kwok
+          spec:
+            taints:
+              - effect: NoSchedule
+                key: kwok.x-k8s.io/node
+                value: fake
+          status:
+            allocatable:
+              cpu: 32
+              memory: 256Gi
+              pods: 110
+            capacity:
+              cpu: 32
+              memory: 256Gi
+              pods: 110
+            phase: Running
+      concurrent_instances: 10
+
+  # Create a namespace
+  - kubernetes:
+      manifest:
+        namespace: |
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: foobar
+
+  # Create pods that recycle every 20 seconds
+  - kubernetes:
+      manifest:
+        pod: |
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            namespace: foobar
+          spec:
+            containers:
+              - name: sleep
+                image: busybox
+                command:
+                  - sleep
+                  - infinity
+      max_instance_lifetime_seconds: 20
+      concurrent_instances: 2
+
+  # Create a Deployment
+  - kubernetes:
+      manifest:
+        deployment: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            namespace: foobar
+            name: foo
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: foo
+            template:
+              metadata:
+                labels:
+                  app: foo
+              spec:
+                containers:
+                  - name: app
+                    image: busybox
+      max_instance_lifetime_seconds: 20
+      concurrent_instances: 2
+
+  # Create a Service
+  - kubernetes:
+      manifest:
+        service: |
+          apiVersion: v1
+          kind: Service
+          metadata:
+            namespace: foobar
+            name: foo
+          spec:
+            selector:
+              app: foo
+            ports:
+              - port: 5000
+      max_instance_lifetime_seconds: 20
+      concurrent_instances: 2
+```
+
+## Configuration fields
+
+<ParamField path="manifest" type="object" required>
+  The Kubernetes resource manifest to create, specified as raw YAML embedded in the lading configuration. Exactly one manifest type must be provided.
+
+  <Expandable title="manifest types">
+    <ParamField path="manifest.node" type="string">
+      A YAML string containing a `v1/Node` manifest.
+    </ParamField>
+    <ParamField path="manifest.namespace" type="string">
+      A YAML string containing a `v1/Namespace` manifest.
+    </ParamField>
+    <ParamField path="manifest.pod" type="string">
+      A YAML string containing a `v1/Pod` manifest.
+    </ParamField>
+    <ParamField path="manifest.deployment" type="string">
+      A YAML string containing an `apps/v1/Deployment` manifest.
+    </ParamField>
+    <ParamField path="manifest.service" type="string">
+      A YAML string containing a `v1/Service` manifest.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="concurrent_instances" type="NonZeroU32" default="1">
+  The number of resource instances to create and maintain concurrently. Each instance is created independently and given a unique generated name.
+</ParamField>
+
+<ParamField path="max_instance_lifetime_seconds" type="NonZeroU32" default="u32::MAX (no recycling)">
+  Maximum lifetime of each resource instance in seconds. When an instance exceeds this age, it is deleted and a new one is created. The default (`u32::MAX`) means resources are never recycled.
+
+  The generator distributes deletions and recreations evenly over the lifetime period to avoid thundering-herd spikes.
+</ParamField>
+
+## Supported resource types
+
+| Manifest key | Kubernetes kind | API version |
+|---|---|---|
+| `node` | Node | `v1` |
+| `namespace` | Namespace | `v1` |
+| `pod` | Pod | `v1` |
+| `deployment` | Deployment | `apps/v1` |
+| `service` | Service | `v1` |
+
+## Behavior notes
+
+Each generator instance manages exactly one manifest type. To create multiple resource types simultaneously, declare multiple `kubernetes` generator entries in your configuration — as shown in the example above.
+
+Resource names in the manifest are used as a base; lading appends a unique suffix to each instance to avoid conflicts between concurrent instances.
+
+Recycling rate is calculated as `concurrent_instances / max_instance_lifetime_seconds` operations per second, distributed evenly to avoid bursts.
+
+<Tip>
+  For realistic Kubernetes load testing, combine multiple generator instances: one for nodes (using [kwok](https://kwok.sigs.k8s.io/) fake nodes), one for namespaces, and one for pods or deployments with recycling enabled.
+</Tip>
+
+<Note>
+  Setting `max_instance_lifetime_seconds` to `u32::MAX` (the default) disables recycling entirely. Resources are created once and left running for the duration of the test.
+</Note>

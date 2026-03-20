@@ -1,0 +1,164 @@
+---
+title: "Installation"
+description: "Build lading from source or use a pre-built Docker image."
+---
+
+lading is distributed as a compiled binary. You can build it from source using Cargo or pull a pre-built image from the GitHub Container Registry.
+
+<Warning>
+  lading's process metrics collection relies on Linux kernel interfaces (`procfs`). Linux is required for full functionality. Cross-compiling for non-Linux targets is not supported.
+</Warning>
+
+## Installation methods
+
+<Tabs>
+  <Tab title="Build from source">
+    ### Prerequisites
+
+    - **Rust toolchain** — install via [rustup](https://rustup.rs)
+    - **protobuf compiler** (`protoc`) — required to compile lading's gRPC and OpenTelemetry support
+
+    Install `protoc`:
+
+    <CodeGroup>
+
+    ```bash Debian / Ubuntu
+    sudo apt-get install protobuf-compiler
+    ```
+
+    ```bash macOS
+    brew install protobuf
+    ```
+
+    </CodeGroup>
+
+    See the [official protobuf installation instructions](https://grpc.io/docs/protoc-installation/) for other platforms.
+
+    ### Build lading
+
+    Clone the repository and build with Cargo:
+
+    ```bash
+    git clone https://github.com/DataDog/lading.git
+    cd lading
+    cargo build --release --bin lading
+    ```
+
+    The binary is written to `target/release/lading`. Optionally install it to your `PATH`:
+
+    ```bash
+    sudo cp target/release/lading /usr/local/bin/lading
+    ```
+
+    ### Optional: build with logrotate filesystem support
+
+    The `logrotate_fs` feature enables a FUSE-based filesystem generator. It requires `libfuse3`:
+
+    ```bash
+    # Debian / Ubuntu
+    sudo apt-get install fuse3 libfuse3-dev
+
+    # Build with the feature enabled
+    cargo build --release --bin lading --features logrotate_fs
+    ```
+
+    ### Build additional tools
+
+    ```bash
+    # Build captool for inspecting capture files
+    cargo build --release --bin captool
+
+    # Build payloadtool for validating payload configurations
+    cargo build --release --bin payloadtool
+    ```
+  </Tab>
+  <Tab title="Docker">
+    ### Pull a pre-built image
+
+    Pre-built images are published to the GitHub Container Registry for each release:
+
+    ```bash
+    docker pull ghcr.io/datadog/lading:latest
+    ```
+
+    Browse available tags at [ghcr.io/datadog/lading](https://github.com/DataDog/lading/pkgs/container/lading).
+
+    ### Build a local Docker image
+
+    The repository includes Dockerfiles for both architectures. Build a local image using Docker's `--platform` flag:
+
+    <CodeGroup>
+
+    ```bash arm64
+    docker build -f arm64.Dockerfile . \
+      --tag lading:local \
+      --platform linux/arm64
+    ```
+
+    ```bash amd64
+    docker build -f amd64.Dockerfile . \
+      --tag lading:local \
+      --platform linux/amd64
+    ```
+
+    </CodeGroup>
+
+    ### Run lading from the image
+
+    The container's default config path is `/etc/lading/lading.yaml`. Mount your config file and an output directory:
+
+    ```bash
+    docker run --rm --network host \
+      -v "$(pwd)/lading.yaml:/etc/lading/lading.yaml" \
+      -v "$(pwd)/output:/output" \
+      ghcr.io/datadog/lading:latest \
+      --capture-path /output/capture.json \
+      --no-target
+    ```
+  </Tab>
+</Tabs>
+
+## Setting capabilities
+
+When lading monitors a Linux process that is more privileged than lading itself (for example, a container running as root), some metrics are unavailable due to security restrictions.
+
+Grant lading the `cap_sys_ptrace` capability to access those metrics:
+
+```bash
+sudo setcap cap_sys_ptrace=ep ./target/debug/lading
+```
+
+This is only required when lading needs to inspect a process it does not have permission to trace by default.
+
+## Environment variables
+
+| Variable | Description |
+|---|---|
+| `RUST_LOG` | Controls lading's log verbosity. Accepts standard `tracing-subscriber` directives such as `error`, `warn`, `info`, `debug`, or `trace`. |
+
+Example:
+
+```bash
+RUST_LOG=info ./lading --config-path lading.yaml --capture-path capture.json --no-target
+```
+
+Set `RUST_LOG=debug` for verbose output during troubleshooting.
+
+## Verify the installation
+
+```bash
+lading --help
+```
+
+A successful installation prints the version and available command-line flags.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run lading against a target for the first time.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration/overview">
+    Configure generators, blackholes, and telemetry in YAML.
+  </Card>
+</CardGroup>

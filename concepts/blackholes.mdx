@@ -1,0 +1,79 @@
+---
+title: "Blackholes"
+description: "How lading blackholes absorb target output without backpressuring the target under measurement."
+keywords: ["blackhole", "output", "backpressure", "sink", "HTTP", "TCP", "UDP"]
+---
+
+Many targets emit output — they forward logs, metrics, or traces to a downstream service. In a real deployment that downstream service provides flow control. In a lading experiment, the downstream service is replaced by a blackhole.
+
+## What blackholes do
+
+A blackhole is a lightweight listening server that:
+
+1. Accepts connections or datagrams from the target.
+2. Reads and discards the received bytes (with optional counting for telemetry).
+3. Responds with the minimum valid acknowledgement required by the protocol.
+
+Blackholes do as little as possible so that they are never the bottleneck. The target must never be blocked waiting for a blackhole to catch up.
+
+## Why blackholes never backpressure the target
+
+The fundamental design rule for every blackhole is: **absorb unconditionally**. A blackhole that fills its receive buffers, blocks on processing, or applies flow control would slow the target and corrupt the measurement.
+
+lading's blackholes enforce this by:
+
+- Performing no blocking computation on received data
+- Sending only minimal acknowledgements (e.g., `200 OK` with an empty body)
+- Using async I/O so a slow consumer on the lading side cannot stall the target's writes
+
+If you are adding a new blackhole, this guarantee must hold: see [ADR-001](https://github.com/DataDog/lading/blob/main/docs/adr/001-generator-target-blackhole-architecture.md) and [ADR-005](https://github.com/DataDog/lading/blob/main/docs/adr/005-performance-first-design.md).
+
+## Blackhole types
+
+<CardGroup cols={2}>
+  <Card title="HTTP" icon="globe" href="/blackholes/http">
+    Listens for HTTP requests and responds with `200 OK` and an empty body. Works with any HTTP client.
+  </Card>
+  <Card title="TCP" icon="plug" href="/blackholes/tcp">
+    Accepts TCP connections and reads bytes from the stream without responding.
+  </Card>
+  <Card title="UDP" icon="wifi" href="/blackholes/udp">
+    Receives UDP datagrams and discards them. No response is sent.
+  </Card>
+  <Card title="Unix stream" icon="terminal" href="/blackholes/unix-stream">
+    Accepts connections on a Unix domain socket (SOCK_STREAM) and drains the stream.
+  </Card>
+  <Card title="Unix datagram" icon="terminal" href="/blackholes/unix-datagram">
+    Receives datagrams on a Unix domain socket (SOCK_DGRAM) and discards them.
+  </Card>
+  <Card title="Splunk HEC" icon="database" href="/blackholes/splunk-hec">
+    Mimics a Splunk HTTP Event Collector endpoint, accepting events and responding with a minimal success body.
+  </Card>
+  <Card title="OTLP" icon="chart-bar" href="/blackholes/otlp">
+    Accepts OpenTelemetry Protocol payloads (traces, metrics, logs) over gRPC or HTTP.
+  </Card>
+  <Card title="Datadog" icon="d" href="/blackholes/datadog">
+    Mimics Datadog intake endpoints. Accepts metrics, logs, and traces.
+  </Card>
+  <Card title="SQS" icon="layer-group" href="/blackholes/sqs">
+    Mimics an AWS SQS endpoint, accepting `SendMessage` and `SendMessageBatch` requests.
+  </Card>
+</CardGroup>
+
+## Configuration
+
+Blackholes are declared in the lading configuration file. Zero or more blackholes can run alongside any set of generators.
+
+```yaml
+blackhole:
+  - http:
+      binding_addr: "0.0.0.0:8080"
+  - tcp:
+      binding_addr: "0.0.0.0:9090"
+```
+
+Each blackhole binds to an address. The target should be configured to send its output to the matching address.
+
+<Tip>
+You do not need a blackhole if the target does not emit output that requires acknowledgement. Many targets simply accept input and write to a file or internal buffer.
+</Tip>

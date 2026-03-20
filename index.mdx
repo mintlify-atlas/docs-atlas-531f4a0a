@@ -1,97 +1,115 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "lading"
+description: "Deterministic load generation and performance measurement for long-running programs"
 ---
 
-## Setting up
+<img
+  src="https://media.brand.dev/14e5944e-c23c-450e-9bc4-d2a00c8afb6d.png"
+  alt="lading"
+  style={{ height: "60px", marginBottom: "2rem" }}
+/>
 
-Get your documentation site up and running in minutes.
+# Measure performance. Repeat it exactly.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+**lading** is a tool for measuring the performance behavior of long-running programs — daemons, agents, and services — using synthetic, repeatable load generation across a variety of protocols. Used by [Datadog](https://github.com/DataDog/datadog-agent) in their Regression Detector tests.
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get lading running against your target in under 5 minutes
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Core Concepts" icon="book" href="/concepts/architecture">
+    Understand generators, targets, and blackholes
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Configuration Reference" icon="sliders" href="/configuration/overview">
+    Full YAML configuration reference
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Generators" icon="bolt" href="/generators/http">
+    HTTP, gRPC, TCP, UDP, DogStatsD, and more
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Why lading?
 
-Everything you need to create world-class documentation.
+<CardGroup cols={3}>
+  <Card title="Deterministic" icon="fingerprint">
+    Seed-based generation ensures identical load across every run — same seed, same bytes, every time
+  </Card>
+  <Card title="Pre-computed" icon="database">
+    Payloads are built at startup, not runtime. lading never becomes the bottleneck in your test
+  </Card>
+  <Card title="Protocol-rich" icon="network-wired">
+    HTTP, gRPC, TCP, UDP, DogStatsD, Splunk HEC, Fluent Forward, OpenTelemetry, and more
+  </Card>
+  <Card title="Self-contained" icon="box">
+    Blackholes absorb target output — no external services needed to run a complete performance test
+  </Card>
+  <Card title="Observable" icon="chart-line">
+    Emits Prometheus metrics and structured JSONL/Parquet capture files for analysis
+  </Card>
+  <Card title="Kubernetes-native" icon="dharmachakra">
+    Run as a sidecar or standalone pod with built-in Kubernetes workload generation
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## How it works
 
-## Need inspiration?
+lading operates on three conceptual components:
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Steps>
+  <Step title="Generator pushes load into the target">
+    Configure one or more generators to send traffic at a defined throughput — HTTP requests, TCP streams, DogStatsD metrics, and more. Generators pre-compute payloads at startup for minimal runtime overhead.
+  </Step>
+  <Step title="Target runs as a subprocess (or is observed)">
+    lading monitors your program: CPU, memory, file descriptors, and other OS-level metrics are collected continuously. The target can be launched as a subprocess or observed by PID or container.
+  </Step>
+  <Step title="Blackhole absorbs target output">
+    When your target needs to send data somewhere, a blackhole listens and discards it — letting you test your target in isolation without external dependencies.
+  </Step>
+</Steps>
+
+## Supported protocols
+
+<CardGroup cols={2}>
+  <Card title="Generators" icon="arrow-right-to-bracket">
+    HTTP · gRPC · TCP · UDP · DogStatsD · Splunk HEC · Fluent Forward · Trace Agent · Unix Stream/Datagram · File Gen · File Tree · Process Tree · Container · Kubernetes
+  </Card>
+  <Card title="Blackholes" icon="arrow-right-from-bracket">
+    HTTP · TCP · UDP · Unix Stream/Datagram · Splunk HEC · OTLP · Datadog API · AWS SQS
+  </Card>
+  <Card title="Payload formats" icon="file-code">
+    Apache Common Log · ASCII · Datadog Logs · DogStatsD · Fluent · JSON · OpenTelemetry (Logs/Metrics/Traces) · Splunk HEC · Syslog RFC 5424 · Templated JSON · Static Chunks
+  </Card>
+  <Card title="Telemetry" icon="chart-bar">
+    Prometheus endpoint · Prometheus Unix socket · Structured JSONL capture · Parquet capture
+  </Card>
+</CardGroup>
+
+## Quick example
+
+```yaml lading.yaml
+generator:
+  - http:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      target_uri: "http://localhost:8282/"
+      bytes_per_second: "100 MiB"
+      parallel_connections: 10
+      method:
+        post:
+          variant: "fluent"
+          maximum_prebuild_cache_size_bytes: "256 MiB"
+      headers: {}
+
+blackhole:
+  - http:
+      binding_addr: "0.0.0.0:8080"
+```
+
+```bash
+lading --config-path lading.yaml \
+  --target-path /path/to/your/daemon \
+  --target-arguments "--config /etc/daemon/config.yaml"
+```
+
+<Note>
+  lading is used by the Datadog Agent team in their [Regression Detector](https://github.com/DataDog/datadog-agent) performance testing infrastructure.
+</Note>

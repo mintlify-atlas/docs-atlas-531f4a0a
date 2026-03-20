@@ -1,0 +1,83 @@
+---
+title: "Introduction"
+description: "lading is a deterministic load generation and performance measurement tool for long-running programs."
+---
+
+**lading** measures the performance behavior of long-running programs — daemons, agents, and services — using synthetic, repeatable load generation across a variety of protocols. The [Datadog Agent](https://github.com/DataDog/datadog-agent) project uses lading in their Regression Detector performance tests.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get lading running against your target in minutes.
+  </Card>
+  <Card title="Installation" icon="wrench" href="/installation">
+    Build from source or pull a pre-built Docker image.
+  </Card>
+  <Card title="Core concepts" icon="book" href="/concepts/architecture">
+    Understand generators, targets, and blackholes.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration/overview">
+    Full YAML configuration reference.
+  </Card>
+</CardGroup>
+
+## What lading does
+
+lading runs as a wrapper around your target program (or observes it by PID or container name). It generates load at a configurable throughput, collects OS-level resource metrics about the target, and — when the target needs somewhere to send its output — provides blackhole servers that absorb traffic without back-pressure.
+
+The result is a self-contained performance measurement harness: no external services, no unpredictable network, no ambiguity about whether the load generator itself is the bottleneck.
+
+## The Generator → Target → Blackhole model
+
+lading is built around three conceptual components:
+
+<Steps>
+  <Step title="Generator pushes load into the target">
+    One or more generators produce traffic at a defined throughput and send it to your program. Each generator uses an explicit numeric seed so that every run produces byte-identical payloads. Supported transports include HTTP, gRPC, TCP, UDP, Unix sockets, DogStatsD, Splunk HEC, Fluent Forward, and more.
+  </Step>
+  <Step title="Target is monitored">
+    Your program runs as a sub-process (binary launch mode) or is observed by PID (PID watch mode) or container name (container watch mode). lading collects CPU, memory, file descriptor, and other OS-level metrics continuously for the duration of the experiment.
+  </Step>
+  <Step title="Blackhole absorbs target output">
+    When your target needs to forward data onward, a blackhole server listens on the configured address and discards incoming payloads without back-pressure. This keeps your target running at full speed without requiring a real downstream service.
+  </Step>
+</Steps>
+
+## Key features
+
+<CardGroup cols={3}>
+  <Card title="Deterministic" icon="fingerprint">
+    Generators take an explicit seed. Same seed produces identical payloads on every run, making performance regressions reproducible and comparable across machines and time.
+  </Card>
+  <Card title="Pre-computed payloads" icon="database">
+    lading builds generator and blackhole payloads at startup, not at request time. Runtime overhead stays minimal so lading never becomes the bottleneck in your test.
+  </Card>
+  <Card title="Protocol-rich" icon="network-wired">
+    HTTP, gRPC, TCP, UDP, DogStatsD, Splunk HEC, Fluent Forward, OpenTelemetry, Syslog RFC 5424, Apache Common Log, and more — generators and blackholes cover the protocols your daemon speaks.
+  </Card>
+  <Card title="Self-contained" icon="box">
+    Blackholes absorb target output locally. You can run a complete performance test with no external services, no cloud dependencies, and no shared infrastructure.
+  </Card>
+  <Card title="Observable" icon="chart-line">
+    lading exposes a Prometheus endpoint (TCP or Unix socket) and can write structured JSONL or Parquet capture files for offline analysis with `captool`.
+  </Card>
+  <Card title="Flexible target modes" icon="server">
+    Launch a binary as a sub-process, attach to a running PID, or find a container via the Docker socket — whichever fits your CI or local workflow.
+  </Card>
+</CardGroup>
+
+## Supported protocols
+
+| Category | Supported |
+|---|---|
+| **Generators** | HTTP, gRPC, TCP, UDP, Unix Stream, Unix Datagram, DogStatsD, Splunk HEC, Fluent Forward, Trace Agent, File Gen, File Tree, Process Tree, Container, Kubernetes |
+| **Blackholes** | HTTP, TCP, UDP, Unix Stream, Unix Datagram, Splunk HEC, OTLP, Datadog API, AWS SQS |
+| **Payload formats** | Apache Common Log, ASCII, Datadog Logs, DogStatsD, Fluent, JSON, OpenTelemetry (Logs/Metrics/Traces), Splunk HEC, Syslog RFC 5424, Templated JSON |
+| **Telemetry output** | Prometheus TCP endpoint, Prometheus Unix socket, JSONL capture file, Parquet capture file |
+
+## Binaries
+
+lading ships three binaries:
+
+- **`lading`** — the main tool: generates load, runs blackholes, observes targets, and emits metrics.
+- **`captool`** — inspects the `capture.json` file written by a lading run.
+- **`payloadtool`** — validates that a payload configuration produces the expected output, useful when writing new experiments.

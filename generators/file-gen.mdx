@@ -1,0 +1,168 @@
+---
+title: 'File generator'
+description: 'Write payload data to files on disk using traditional or logrotate-style rotation.'
+---
+
+The file generator writes pre-built payload blocks directly to files on disk. It operates without any network connection or coordination with the target process. Use it to stress-test log agents, file tailers, and any software that reads from files.
+
+Two modes are available:
+
+- **Traditional** — writes multiple file copies in parallel, rotating each file when it reaches a size limit.
+- **Logrotate** — mimics the behavior of `logrotate`, writing concurrent logs under a root directory up to a configured size, then rotating them a fixed number of times.
+
+## Configuration: traditional mode
+
+```yaml
+generator:
+  - file_gen:
+      traditional:
+        seed: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
+               59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131]
+        path_template: "/tmp/lading/test-%NNN%.log"
+        duplicates: 4
+        variant:
+          ascii: {}
+        maximum_bytes_per_file: "100 MiB"
+        maximum_prebuild_cache_size_bytes: "256 MiB"
+        maximum_block_size: "1 MiB"
+        block_cache_method: fixed
+        rotate: true
+        flush_every: "1s"
+        throttle:
+          stable:
+            bytes_per_second: "10 MiB"
+```
+
+## Configuration: logrotate mode
+
+```yaml
+generator:
+  - file_gen:
+      logrotate:
+        seed: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
+               59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131]
+        root: "/tmp/lading/logs"
+        concurrent_logs: 8
+        maximum_bytes_per_log: "50 MiB"
+        total_rotations: 4
+        max_depth: 2
+        variant:
+          ascii: {}
+        maximum_prebuild_cache_size_bytes: "256 MiB"
+        maximum_block_size: "1 MiB"
+        flush_every: "500ms"
+        throttle:
+          stable:
+            bytes_per_second: "10 MiB"
+```
+
+## Traditional mode fields
+
+<ParamField path="seed" type="[u8; 32]" required>
+  A 32-byte seed array for the random number generator. Same seed always produces the same payload sequence.
+</ParamField>
+
+<ParamField path="path_template" type="string" required>
+  A file path template. The literal string `%NNN%` is replaced with the duplicate index (zero-padded). For example, `/tmp/test-%NNN%.log` with `duplicates: 3` creates `/tmp/test-000.log`, `/tmp/test-001.log`, and `/tmp/test-002.log`.
+</ParamField>
+
+<ParamField path="duplicates" type="u8" required>
+  The number of parallel file writers to create from the path template.
+</ParamField>
+
+<ParamField path="variant" type="object" required>
+  The payload type to write. See [Payload types](/concepts/payloads) for all available variants.
+</ParamField>
+
+<ParamField path="maximum_bytes_per_file" type="string" required>
+  The soft maximum size of each file before it is closed and a new one is opened. This limit may be exceeded by one block. Accepts human-readable sizes such as `"100 MiB"`.
+</ParamField>
+
+<ParamField path="maximum_prebuild_cache_size_bytes" type="string" required>
+  Maximum size of the pre-built payload cache. Accepts human-readable sizes.
+</ParamField>
+
+<ParamField path="maximum_block_size" type="string" default="1 MiB">
+  Maximum size of an individual block in the cache.
+</ParamField>
+
+<ParamField path="block_cache_method" type="string" default="fixed">
+  How the block cache is populated: `fixed` (filled once at startup) or `streaming` (continuously refilled).
+</ParamField>
+
+<ParamField path="rotate" type="boolean" default="true">
+  When `true`, files are deleted and recreated when they reach `maximum_bytes_per_file`. When `false`, the tailing software is responsible for removing old files.
+</ParamField>
+
+<ParamField path="flush_every" type="string" default="max (no periodic flush)">
+  Force a filesystem flush at a regular interval. Accepts human-readable durations such as `"1s"` or `"500ms"`. Defaults to no periodic flush.
+</ParamField>
+
+<ParamField path="throttle" type="object">
+  Load throttle configuration. See [Throttling](/concepts/throttling) for full details.
+</ParamField>
+
+## Logrotate mode fields
+
+<ParamField path="seed" type="[u8; 32]" required>
+  A 32-byte seed array for the random number generator.
+</ParamField>
+
+<ParamField path="root" type="string" required>
+  The root directory under which log files are written. The directory must exist before lading starts.
+</ParamField>
+
+<ParamField path="concurrent_logs" type="u16" required>
+  The number of log files to write concurrently.
+</ParamField>
+
+<ParamField path="maximum_bytes_per_log" type="string" required>
+  The soft maximum byte size of each individual log file before rotation.
+</ParamField>
+
+<ParamField path="total_rotations" type="u8" required>
+  The number of rotations to apply to each log file. Analogous to the `rotate` count in a `logrotate` configuration.
+</ParamField>
+
+<ParamField path="max_depth" type="u8" required>
+  Maximum directory depth below `root` for log file placement. A value of `0` places all files directly in `root`.
+</ParamField>
+
+<ParamField path="variant" type="object" required>
+  The payload type to write. See [Payload types](/concepts/payloads).
+</ParamField>
+
+<ParamField path="maximum_prebuild_cache_size_bytes" type="string" required>
+  Maximum size of the pre-built payload cache.
+</ParamField>
+
+<ParamField path="maximum_block_size" type="string" default="1 MiB">
+  Maximum size of an individual block in the cache.
+</ParamField>
+
+<ParamField path="flush_every" type="string" default="max (no periodic flush)">
+  Force a filesystem flush at a regular interval.
+</ParamField>
+
+<ParamField path="throttle" type="object">
+  Load throttle configuration. See [Throttling](/concepts/throttling).
+</ParamField>
+
+## Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `bytes_written` | Total bytes written to disk |
+| `bytes_per_second` | Configured throughput rate |
+
+## Behavior notes
+
+Both modes operate without coordinating with the target. Files are written concurrently and independently. The generator pre-builds all payload blocks at startup so the write loop stays thin during the test.
+
+<Note>
+  The parent directory specified in `path_template` (traditional) or `root` (logrotate) must exist before lading starts. lading does not create parent directories.
+</Note>
+
+<Tip>
+  Use the logrotate mode when testing log agents that expect files to be rotated and renamed in the same pattern as `logrotate`, such as Datadog Agent's log collection component.
+</Tip>

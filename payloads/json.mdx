@@ -1,0 +1,63 @@
+---
+title: "JSON"
+description: "Generates generic JSON objects, one per line."
+---
+
+The `json` payload produces newline-delimited JSON (NDJSON). Each line is a self-contained JSON object with several randomly generated fields. This is a general-purpose payload useful for testing JSON log pipelines, parsers, and routers.
+
+## Format
+
+Each line is a JSON object:
+
+```json
+{"id": <u64>, "name": <u64>, "seed": <u16>, "byte_parade": [<u8>, ...]}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | number | Random unsigned 64-bit integer |
+| `name` | number | Random unsigned 64-bit integer |
+| `seed` | number | Random unsigned 16-bit integer |
+| `byte_parade` | array | Variable-length array of random bytes; length chosen from `[0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]` |
+
+## Sample output
+
+```json
+{"id":14831029384756102938,"name":7263847192039847562,"seed":41823,"byte_parade":[12,255,7,43,19]}
+{"id":8372910472938471029,"name":1928374650283746512,"seed":9821,"byte_parade":[]}
+{"id":3728194651029384756,"name":6172839405162738495,"seed":52031,"byte_parade":[0,128,64,192,255,127,63,31]}
+```
+
+## Configuration
+
+`json` has no configuration options. Specify it as a bare string:
+
+```yaml
+variant: json
+```
+
+## Supported generators
+
+All generators that accept a `variant` field support `json`: `http`, `tcp`, `udp`, `unix_stream`, `unix_datagram`, `grpc`, `file_gen`, and `passthru_file`.
+
+## Example
+
+```yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://127.0.0.1:8080/"
+      bytes_per_second: "20 MiB"
+      parallel_connections: 4
+      headers:
+        Content-Type: "application/x-ndjson"
+      method:
+        post:
+          maximum_prebuild_cache_size_bytes: "100 MiB"
+          variant: json
+
+blackhole:
+  - http:
+      binding_addr: "0.0.0.0:8080"
+```

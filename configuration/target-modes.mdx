@@ -1,0 +1,275 @@
+---
+title: "Target modes"
+description: "Configure how lading attaches to and monitors your target process: binary launch, PID watch, or container watch."
+keywords: ["lading", "target", "binary", "pid", "container", "docker", "subprocess"]
+---
+
+The _target_ is the process lading measures. lading supports three target modes:
+
+<CardGroup cols={3}>
+  <Card title="Binary" icon="terminal">
+    lading launches and manages the process directly
+  </Card>
+  <Card title="PID watch" icon="eye">
+    lading attaches to an already-running process by PID
+  </Card>
+  <Card title="Container watch" icon="docker">
+    lading attaches to a Docker container by name
+  </Card>
+</CardGroup>
+
+Target mode is always configured via CLI flags — not in the YAML config file. Exactly one of `--target-path`, `--target-pid`, `--target-container`, or `--no-target` is required.
+
+## Binary launch mode
+
+lading spawns the target as a child process, monitors it, and sends SIGTERM when the experiment completes. If the process exits unexpectedly, lading performs a controlled shutdown.
+
+```bash
+lading run \
+  --config-path lading.yaml \
+  --prometheus-addr 0.0.0.0:9000 \
+  --target-path /usr/local/bin/my-agent \
+  --target-arguments "--config /etc/agent/config.yaml" "--log-level info"
+```
+
+### CLI flags
+
+<ParamField path="--target-path" type="path" required>
+  Path to the target executable. This flag enables binary launch mode.
+
+  ```bash
+  --target-path /usr/local/bin/my-agent
+  ```
+</ParamField>
+
+<ParamField path="--target-arguments" type="string[]">
+  Arguments passed to the target executable. Multiple arguments are passed as separate values after the flag.
+
+  ```bash
+  --target-path /usr/local/bin/agent \
+  --target-arguments "--config" "/etc/agent/config.yaml"
+  ```
+
+  Arguments can also be passed after `--` at the end of the lading invocation:
+
+  ```bash
+  lading run --config-path lading.yaml --target-path /usr/bin/agent -- --config /etc/agent.yaml
+  ```
+</ParamField>
+
+<ParamField path="--target-inherit-environment" type="boolean">
+  When set, the target inherits all environment variables from lading's own process environment. Without this flag, the target starts with an empty environment (plus any variables set via `--target-environment-variables`).
+
+  ```bash
+  --target-inherit-environment
+  ```
+</ParamField>
+
+<ParamField path="--target-environment-variables" type="string">
+  Additional environment variables to set for the target process. Format: `KEY=VAL,KEY2=VAL2`.
+
+  ```bash
+  --target-environment-variables "DD_API_KEY=abc123,LOG_LEVEL=debug"
+  ```
+
+  Requires `--target-path`.
+</ParamField>
+
+<ParamField path="--target-stdout-path" type="string" default="quiet">
+  Controls where the target's stdout is written. Accepts `quiet` (discard), `inherit` (pass through to lading's own stdout), or a file path.
+
+  ```bash
+  --target-stdout-path /var/log/target-stdout.log
+  ```
+</ParamField>
+
+<ParamField path="--target-stderr-path" type="string" default="quiet">
+  Controls where the target's stderr is written. Same values as `--target-stdout-path`.
+
+  ```bash
+  --target-stderr-path /var/log/target-stderr.log
+  ```
+</ParamField>
+
+### Complete binary launch example
+
+```bash
+lading run \
+  --config-path /etc/lading/lading.yaml \
+  --capture-path /var/log/lading/capture.jsonl \
+  --global-labels experiment=baseline,run=001 \
+  --target-path /usr/local/bin/datadog-agent \
+  --target-inherit-environment \
+  --target-environment-variables "DD_API_KEY=test,DD_SITE=datadoghq.com" \
+  --target-stdout-path /var/log/agent-stdout.log \
+  --target-stderr-path /var/log/agent-stderr.log \
+  --experiment-duration-seconds 300 \
+  --warmup-duration-seconds 60
+```
+
+## PID watch mode
+
+lading attaches to an existing process by its numeric PID. The target process must be running before lading starts. If the process exits while being monitored, lading exits with an error.
+
+This mode is designed for containerized environments where lading runs as a sidecar and the target is managed by an external process supervisor.
+
+```bash
+lading run \
+  --config-path lading.yaml \
+  --prometheus-addr 0.0.0.0:9000 \
+  --target-pid 1234
+```
+
+### CLI flags
+
+<ParamField path="--target-pid" type="number" required>
+  PID of an already-running process to watch. Must be a positive integer.
+
+  ```bash
+  --target-pid 1234
+  ```
+
+  To find the PID of a running process:
+
+  ```bash
+  pgrep my-agent
+  ```
+</ParamField>
+
+### Example: sidecar container
+
+In a Kubernetes sidecar setup, lading reads the target PID from a shared file written by the target container:
+
+```bash
+TARGET_PID=$(cat /proc/1/status | grep '^Pid:' | awk '{print $2}')
+
+lading run \
+  --config-path /etc/lading/lading.yaml \
+  --capture-path /shared/capture.jsonl \
+  --target-pid "${TARGET_PID}"
+```
+
+## Container watch mode
+
+lading attaches to a running Docker container by its name. It connects to the Docker daemon via the Unix socket at `/var/run/docker.sock` to resolve the container's PID, then monitors that process.
+
+```bash
+lading run \
+  --config-path lading.yaml \
+  --prometheus-addr 0.0.0.0:9000 \
+  --target-container my-agent-container
+```
+
+### CLI flags
+
+<ParamField path="--target-container" type="string" required>
+  Name of the Docker container to watch. The container must be running when lading starts.
+
+  ```bash
+  --target-container my-agent
+  ```
+</ParamField>
+
+<Note>
+  Container watch mode requires the Docker socket to be accessible at `/var/run/docker.sock`. Ensure lading has permission to read from this socket.
+</Note>
+
+### Example: Docker Compose
+
+```yaml docker-compose.yaml
+services:
+  agent:
+    image: my-org/my-agent:latest
+    container_name: my-agent
+
+  lading:
+    image: ghcr.io/datadog/lading:latest
+    volumes:
+      - ./lading.yaml:/etc/lading/lading.yaml
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./captures:/var/log/lading
+    command:
+      - run
+      - --config-path=/etc/lading/lading.yaml
+      - --capture-path=/var/log/lading/capture.jsonl
+      - --target-container=my-agent
+    depends_on:
+      - agent
+```
+
+## No-target mode
+
+Run lading without any target process. Useful for testing generator and blackhole configurations in isolation, or for benchmarking lading itself.
+
+```bash
+lading run \
+  --config-path lading.yaml \
+  --prometheus-addr 0.0.0.0:9000 \
+  --no-target
+```
+
+<ParamField path="--no-target" type="boolean">
+  Disable target measurement. lading runs generators and blackholes but does not observe any process. No observer metrics are emitted.
+</ParamField>
+
+## Capture and telemetry flags
+
+These flags configure telemetry output and can be used with any target mode.
+
+<ParamField path="--capture-path" type="path">
+  Path on disk to write the capture file. Enables Log telemetry mode. Mutually exclusive with `--prometheus-addr` and `--prometheus-path`.
+
+  ```bash
+  --capture-path /var/log/lading/capture.jsonl
+  ```
+</ParamField>
+
+<ParamField path="--capture-format" type="string" default="jsonl">
+  Format for the capture file. One of: `jsonl`, `parquet`, `multi`.
+
+  ```bash
+  --capture-format parquet
+  ```
+</ParamField>
+
+<ParamField path="--capture-flush-seconds" type="number" default="60">
+  Seconds to buffer before flushing to the capture file.
+</ParamField>
+
+<ParamField path="--capture-compression-level" type="number" default="3">
+  Zstandard compression level for Parquet output (1–22). Only used when `--capture-format=parquet` or `--capture-format=multi`.
+</ParamField>
+
+<ParamField path="--prometheus-addr" type="string">
+  TCP address to bind the Prometheus exporter to. Enables Prometheus telemetry mode. Mutually exclusive with `--capture-path` and `--prometheus-path`.
+
+  ```bash
+  --prometheus-addr 0.0.0.0:9000
+  ```
+</ParamField>
+
+<ParamField path="--prometheus-path" type="path">
+  Unix socket path for the Prometheus exporter. Enables PrometheusSocket telemetry mode. Mutually exclusive with `--capture-path` and `--prometheus-addr`.
+
+  ```bash
+  --prometheus-path /var/run/lading/prometheus.sock
+  ```
+</ParamField>
+
+## Experiment duration flags
+
+<ParamField path="--experiment-duration-seconds" type="number" default="120">
+  Total time in seconds to run the target and collect samples.
+</ParamField>
+
+<ParamField path="--experiment-duration-infinite" type="boolean">
+  Run indefinitely without a time limit. Mutually exclusive with `--experiment-duration-seconds`.
+</ParamField>
+
+<ParamField path="--warmup-duration-seconds" type="number" default="30">
+  Time in seconds to allow the target to run before collecting samples. During warmup, generators run but observer metrics are not recorded.
+</ParamField>
+
+<ParamField path="--max-shutdown-delay" type="number" default="30">
+  Maximum time in seconds to wait for a controlled shutdown before forcibly terminating.
+</ParamField>

@@ -1,0 +1,101 @@
+---
+title: 'HTTP blackhole'
+description: 'A minimal HTTP/1.1 server that accepts any request, discards the body, and returns a configurable response.'
+---
+
+The HTTP blackhole listens on a TCP address and accepts any HTTP/1.1 request. It reads the full request body, optionally decodes compressed content, emits byte-count metrics, then responds immediately with a configurable status code, headers, and body. The server never applies backpressure to the target.
+
+<Note>
+  Blackholes never backpressure the target. Lading is designed to be faster than the system under test, so the blackhole accepts data as fast as the target sends it.
+</Note>
+
+## Configuration
+
+```yaml
+blackhole:
+  - http:
+      binding_addr: "127.0.0.1:8080"
+      concurrent_requests_max: 100
+      status: 200
+      body_variant: nothing
+      response_delay_millis: 0
+      headers:
+        content-type: application/json
+      raw_bytes: []
+```
+
+### Fields
+
+<ParamField body="binding_addr" type="string" required>
+  IP address and port for the HTTP server to bind to. Example: `"127.0.0.1:8080"`.
+</ParamField>
+
+<ParamField body="concurrent_requests_max" type="number" default="100">
+  Maximum number of concurrent HTTP connections to accept simultaneously.
+</ParamField>
+
+<ParamField body="status" type="number" default="200">
+  HTTP status code to return in every response. Must be a valid HTTP status code.
+</ParamField>
+
+<ParamField body="body_variant" type="string" default="nothing">
+  Controls the response body content. One of:
+
+  - `nothing` — empty response body
+  - `aws_kinesis` — hardcoded AWS Kinesis `PutRecordBatch` success response (JSON)
+  - `raw_bytes` — the byte slice configured in `raw_bytes`
+  - `static` — a static string value (set inline, e.g. `body_variant: {static: "OK"}`)
+</ParamField>
+
+<ParamField body="headers" type="object" default="{content-type: application/json}">
+  Map of HTTP response headers to include in every response. Defaults to `Content-Type: application/json`.
+</ParamField>
+
+<ParamField body="raw_bytes" type="number[]" default="[]">
+  Array of byte values to use as the response body when `body_variant` is `raw_bytes`. Example: `[0x01, 0x02, 0x10]`.
+</ParamField>
+
+<ParamField body="response_delay_millis" type="number" default="0">
+  Milliseconds to wait before sending the response. Useful for simulating slow backends.
+</ParamField>
+
+## Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `bytes_received` | Total bytes received in request bodies (labeled by component). |
+| `total_bytes_received` | Aggregated bytes received across all blackhole instances (unlabeled). |
+| `decoded_bytes_received` | Bytes after decompression when the request uses `Content-Encoding`. |
+| `requests_received` | Total number of HTTP requests accepted. |
+
+All per-component metrics carry `component=blackhole` and `component_name=http` labels. If you set an `id` in the general blackhole config, an `id` label is added as well.
+
+## Typical generator pairings
+
+<Tip>
+  The HTTP blackhole is the most common pairing target. Use it with any generator that sends HTTP traffic.
+</Tip>
+
+- **HTTP generator** — the primary pairing; the generator POSTs payloads directly to `binding_addr`
+- **Splunk HEC generator** — sends HEC-formatted events over HTTP (use the `splunk_hec` blackhole for HEC-specific ack support)
+- **Trace agent generator** — sends Datadog trace payloads over HTTP
+
+### Example: HTTP generator to HTTP blackhole
+
+```yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://127.0.0.1:8080/"
+      bytes_per_second: "1 MiB"
+      parallel_connections: 1
+      method:
+        post:
+          maximum_prebuild_cache_size_bytes: "10 MiB"
+          variant: ascii
+
+blackhole:
+  - http:
+      binding_addr: "127.0.0.1:8080"
+```

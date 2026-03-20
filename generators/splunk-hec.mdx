@@ -1,0 +1,135 @@
+---
+title: 'Splunk HEC generator'
+description: 'Generate deterministic load against a Splunk HTTP Event Collector endpoint.'
+---
+
+The Splunk HEC generator sends HTTP requests to a Splunk HTTP Event Collector (HEC) endpoint. It pre-builds a cache of payloads and sends them at a configurable throughput rate across one or more parallel connections.
+
+## Configuration example
+
+```yaml
+generator:
+  - splunk_hec:
+      seed: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
+             59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131]
+      target_uri: "http://localhost:8088"
+      format: json
+      token: "my-hec-token"
+      bytes_per_second: "10 MiB"
+      maximum_prebuild_cache_size_bytes: "256 MiB"
+      maximum_block_size: "1 MiB"
+      block_cache_method: fixed
+      parallel_connections: 5
+      acknowledgements:
+        ack_query_interval_seconds: 10
+        ack_timeout_seconds: 60
+      throttle:
+        stable:
+          bytes_per_second: "10 MiB"
+```
+
+## Configuration fields
+
+<ParamField path="seed" type="[u8; 32]" required>
+  A 32-byte array used to seed the random number generator. The same seed always produces the same sequence of payloads, enabling reproducible load tests.
+</ParamField>
+
+<ParamField path="target_uri" type="string" required>
+  The base URI of the Splunk HEC server (for example, `http://localhost:8088`). The generator appends the correct path for the selected format automatically:
+  - JSON format: `/services/collector/event`
+  - Text format: `/services/collector/raw`
+</ParamField>
+
+<ParamField path="format" type="string" required>
+  The encoding format for event data. Accepted values:
+  - `json` — structured JSON events
+  - `text` — raw text events
+</ParamField>
+
+<ParamField path="token" type="string" required>
+  The Splunk HEC authentication token sent in the `Authorization` header.
+</ParamField>
+
+<ParamField path="parallel_connections" type="u16" required>
+  The total number of simultaneous HTTP connections to maintain to the target.
+</ParamField>
+
+<ParamField path="maximum_prebuild_cache_size_bytes" type="string" required>
+  The maximum size of the pre-built payload cache in bytes. Accepts human-readable sizes such as `"256 MiB"` or `"1 GiB"`. Larger caches reduce CPU overhead during the test at the cost of memory.
+</ParamField>
+
+<ParamField path="bytes_per_second" type="string">
+  The target throughput in bytes per second. Accepts human-readable sizes such as `"10 MiB"`. Mutually exclusive with `throttle`.
+
+  <Warning>Deprecated in favor of `throttle`. Use `throttle.stable.bytes_per_second` for new configurations.</Warning>
+</ParamField>
+
+<ParamField path="maximum_block_size" type="string" default="1 MiB">
+  The maximum size of an individual pre-built block in the payload cache. Accepts human-readable sizes. Defaults to `1 MiB`.
+</ParamField>
+
+<ParamField path="block_cache_method" type="string" default="fixed">
+  Controls how the block cache is populated:
+  - `fixed` — cache is filled once at startup
+  - `streaming` — cache is refilled continuously as blocks are consumed
+</ParamField>
+
+<ParamField path="throttle" type="object">
+  Load throttle configuration. Mutually exclusive with `bytes_per_second`. See [Throttling](/concepts/throttling) for full details.
+
+  <Expandable title="throttle options">
+    <ParamField path="throttle.all_out" type="object">
+      Sends as fast as possible with no rate limit.
+    </ParamField>
+    <ParamField path="throttle.stable" type="object">
+      Maintains a constant throughput rate.
+      <ParamField path="throttle.stable.bytes_per_second" type="string">
+        Target bytes per second (e.g. `"10 MiB"`).
+      </ParamField>
+      <ParamField path="throttle.stable.blocks_per_second" type="number">
+        Target blocks per second.
+      </ParamField>
+      <ParamField path="throttle.stable.timeout_millis" type="number" default="0">
+        Timeout in milliseconds for IO operations.
+      </ParamField>
+    </ParamField>
+    <ParamField path="throttle.linear" type="object">
+      Linearly ramps throughput from an initial to a maximum rate over the test duration.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="acknowledgements" type="object">
+  Optional Splunk HEC indexer acknowledgements configuration. When set, the generator polls `/services/collector/ack` for delivery confirmation.
+
+  <Expandable title="acknowledgements fields">
+    <ParamField path="acknowledgements.ack_query_interval_seconds" type="number" required>
+      How often (in seconds) to poll the acknowledgements endpoint.
+    </ParamField>
+    <ParamField path="acknowledgements.ack_timeout_seconds" type="number" required>
+      How long (in seconds) an acknowledgement ID can remain pending before the generator assumes data was dropped.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `maximum_requests` | Total number of parallel connections configured |
+| `requests_sent` | Total number of HTTP requests sent |
+| `request_ok` | Successful requests (2xx responses) |
+| `request_failure` | Failed requests |
+| `request_timeout` | Timed-out requests (not included in `request_failure`) |
+| `bytes_written` | Total bytes written |
+| `bytes_per_second` | Configured throughput rate |
+
+## Behavior notes
+
+The generator pre-builds all payload blocks at startup. This front-loads CPU work so the send loop remains as thin as possible during the test, avoiding lading becoming a bottleneck.
+
+When `acknowledgements` is configured, the generator tracks delivery of every event and flags any that time out as dropped. This is useful for measuring end-to-end delivery guarantees in Splunk pipelines.
+
+<Tip>
+  Use `format: json` for structured log pipelines and `format: text` for raw syslog or plain-text sources.
+</Tip>

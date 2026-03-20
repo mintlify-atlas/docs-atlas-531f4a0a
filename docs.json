@@ -1,122 +1,134 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "lading",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#688782",
+    "light": "#346861",
+    "dark": "#c5d3d1"
   },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "tabs": [
-      {
-        "tab": "Guides",
-        "groups": [
-          {
-            "group": "Getting started",
-            "pages": [
-              "index",
-              "quickstart",
-              "development"
-            ]
-          },
-          {
-            "group": "Customization",
-            "pages": [
-              "essentials/settings",
-              "essentials/navigation"
-            ]
-          },
-          {
-            "group": "Writing content",
-            "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "API reference",
-        "groups": [
-          {
-            "group": "API documentation",
-            "pages": [
-              "api-reference/introduction"
-            ]
-          },
-          {
-            "group": "Endpoint examples",
-            "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
-            ]
-          }
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
+  "favicon": "https://media.brand.dev/66afb0dc-2950-4f6d-8323-b93eec7f9960.png",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "https://media.brand.dev/14e5944e-c23c-450e-9bc4-d2a00c8afb6d.png",
+    "dark": "https://media.brand.dev/14e5944e-c23c-450e-9bc4-d2a00c8afb6d.png"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/DataDog/lading"
     }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/DataDog/lading"
     }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/generators",
+              "concepts/blackholes",
+              "concepts/targets",
+              "concepts/payloads",
+              "concepts/throttling"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/telemetry",
+              "configuration/target-modes"
+            ]
+          },
+          {
+            "group": "Generators",
+            "pages": [
+              "generators/http",
+              "generators/grpc",
+              "generators/tcp",
+              "generators/udp",
+              "generators/unix-stream",
+              "generators/unix-datagram",
+              "generators/splunk-hec",
+              "generators/dogstatsd",
+              "generators/file-gen",
+              "generators/file-tree",
+              "generators/process-tree",
+              "generators/trace-agent",
+              "generators/container",
+              "generators/kubernetes"
+            ]
+          },
+          {
+            "group": "Blackholes",
+            "pages": [
+              "blackholes/http",
+              "blackholes/tcp",
+              "blackholes/udp",
+              "blackholes/unix-stream",
+              "blackholes/unix-datagram",
+              "blackholes/splunk-hec",
+              "blackholes/otlp",
+              "blackholes/datadog",
+              "blackholes/sqs"
+            ]
+          },
+          {
+            "group": "Payload Types",
+            "pages": [
+              "payloads/overview",
+              "payloads/apache-common",
+              "payloads/ascii",
+              "payloads/datadog-logs",
+              "payloads/dogstatsd",
+              "payloads/fluent",
+              "payloads/json",
+              "payloads/opentelemetry",
+              "payloads/splunk-hec",
+              "payloads/syslog",
+              "payloads/templated-json"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/running-with-docker",
+              "guides/kubernetes",
+              "guides/capture-analysis",
+              "guides/performance-testing"
+            ]
+          },
+          {
+            "group": "Tools",
+            "pages": [
+              "tools/captool",
+              "tools/payloadtool"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/cli",
+              "reference/changelog"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

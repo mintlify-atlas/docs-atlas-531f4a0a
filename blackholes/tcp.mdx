@@ -1,0 +1,60 @@
+---
+title: 'TCP blackhole'
+description: 'A minimal TCP server that accepts connections, reads all incoming bytes, and discards them.'
+---
+
+The TCP blackhole listens on a TCP socket, accepts incoming connections, and drains each connection by reading all bytes sent. It does not parse any protocol or send any response — bytes are counted and discarded. The server never applies backpressure to the target.
+
+<Note>
+  Blackholes never backpressure the target. Lading is designed to be faster than the system under test, so the blackhole accepts data as fast as the target sends it.
+</Note>
+
+## Configuration
+
+```yaml
+blackhole:
+  - tcp:
+      binding_addr: "0.0.0.0:8080"
+```
+
+### Fields
+
+<ParamField body="binding_addr" type="string" required>
+  IP address and port for the TCP server to bind to. Example: `"0.0.0.0:8080"`.
+</ParamField>
+
+## Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `connection_accepted` | Number of incoming TCP connections accepted. |
+| `bytes_received` | Total bytes read from all connections (labeled by component). |
+| `total_bytes_received` | Aggregated bytes received across all blackhole instances (unlabeled). |
+| `message_received` | Number of individual read chunks received from the stream. |
+
+All per-component metrics carry `component=blackhole` and `component_name=tcp` labels. If you set an `id` in the general blackhole config, an `id` label is added as well.
+
+## Typical generator pairings
+
+<Tip>
+  The TCP blackhole is paired with any generator that pushes raw bytes over TCP, regardless of the payload format.
+</Tip>
+
+- **TCP generator** — the primary pairing; sends any payload variant (e.g. `syslog5424`, `json`, `ascii`) to the TCP blackhole
+
+### Example: TCP generator to TCP blackhole
+
+```yaml
+generator:
+  - tcp:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59,
+             61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      addr: "0.0.0.0:8282"
+      variant: syslog5424
+      bytes_per_second: "500 MiB"
+      maximum_prebuild_cache_size_bytes: "256 MiB"
+
+blackhole:
+  - tcp:
+      binding_addr: "0.0.0.0:8282"
+```

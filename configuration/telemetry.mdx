@@ -1,0 +1,253 @@
+---
+title: "Telemetry configuration"
+description: "Configure how lading emits its internal metrics: Prometheus endpoint, Unix socket, or structured capture file."
+keywords: ["lading", "telemetry", "prometheus", "capture", "jsonl", "parquet", "metrics"]
+---
+
+lading must have telemetry configured — it emits all internal metrics (observer data, generator throughput, etc.) through exactly one telemetry backend. Telemetry is configured either in the YAML file under the `telemetry` key, or via CLI flags at runtime.
+
+<Warning>
+  lading exits with an error if telemetry is not configured through either the YAML file or a CLI flag (`--prometheus-addr`, `--prometheus-path`, or `--capture-path`).
+</Warning>
+
+## Telemetry modes
+
+lading supports three telemetry modes:
+
+<CardGroup cols={3}>
+  <Card title="Prometheus" icon="chart-line">
+    Serves metrics at an HTTP endpoint for scraping
+  </Card>
+  <Card title="PrometheusSocket" icon="plug">
+    Serves metrics on a Unix domain socket
+  </Card>
+  <Card title="Log (capture)" icon="file">
+    Writes metrics to a structured file (JSONL or Parquet)
+  </Card>
+</CardGroup>
+
+## Prometheus mode
+
+Exposes a Prometheus scrape endpoint over HTTP. This is the default telemetry mode when using `--prometheus-addr`.
+
+```yaml lading.yaml
+telemetry:
+  addr: "0.0.0.0:9000"
+  global_labels:
+    experiment: "baseline"
+    component: "my-agent"
+```
+
+<ParamField body="telemetry.addr" type="string" required>
+  TCP address and port to bind the Prometheus exporter to. Accepts any valid socket address.
+
+  ```yaml
+  addr: "0.0.0.0:9000"
+  ```
+</ParamField>
+
+<ParamField body="telemetry.global_labels" type="object">
+  Key-value labels applied to every metric emitted by lading. Useful for identifying experiments or environments in dashboards.
+
+  ```yaml
+  global_labels:
+    experiment: "baseline-v2"
+    host: "perf-runner-01"
+  ```
+</ParamField>
+
+Scrape the endpoint with:
+
+```bash
+curl http://localhost:9000/metrics
+```
+
+### Via CLI
+
+```bash
+lading run \
+  --config-path lading.yaml \
+  --prometheus-addr 0.0.0.0:9000 \
+  --global-labels experiment=baseline,host=runner-01 \
+  --target-path /usr/local/bin/my-agent
+```
+
+## PrometheusSocket mode
+
+Exposes a Prometheus scrape endpoint on a Unix domain socket instead of a TCP address. Useful in containerized environments where host networking is restricted.
+
+```yaml lading.yaml
+telemetry:
+  path: "/var/run/lading/prometheus.sock"
+  global_labels:
+    experiment: "baseline"
+```
+
+<ParamField body="telemetry.path" type="string" required>
+  Filesystem path for the Unix socket. The directory must exist and be writable by the lading process.
+
+  ```yaml
+  path: "/var/run/lading/prometheus.sock"
+  ```
+</ParamField>
+
+<ParamField body="telemetry.global_labels" type="object">
+  Key-value labels applied to every metric. Same behavior as Prometheus mode.
+</ParamField>
+
+### Via CLI
+
+```bash
+lading run \
+  --config-path lading.yaml \
+  --prometheus-path /var/run/lading/prometheus.sock \
+  --target-path /usr/local/bin/my-agent
+```
+
+## Log (capture) mode
+
+Writes metrics to a structured file on disk. This is the primary mode for offline analysis and is compatible with the `captool` utility.
+
+```yaml lading.yaml
+telemetry:
+  path: "/var/log/lading/capture.jsonl"
+  global_labels:
+    experiment: "baseline"
+  format:
+    jsonl:
+      flush_seconds: 60
+```
+
+<ParamField body="telemetry.path" type="string" required>
+  Filesystem path to write the capture file. The file is created if it does not exist; the directory must exist.
+
+  ```yaml
+  path: "/var/log/lading/capture.jsonl"
+  ```
+</ParamField>
+
+<ParamField body="telemetry.global_labels" type="object">
+  Key-value labels applied to every metric written to the capture file.
+</ParamField>
+
+<ParamField body="telemetry.expiration" type="object">
+  Duration after which a metric is dropped if it has not been emitted. Defaults to `Duration::MAX` (never expires). Useful when testing transient components where metrics may stop appearing mid-run.
+</ParamField>
+
+<ParamField body="telemetry.format" type="object" default="jsonl">
+  Output format for the capture file. Defaults to `jsonl`. See [Capture formats](#capture-formats).
+</ParamField>
+
+### Via CLI
+
+```bash
+lading run \
+  --config-path lading.yaml \
+  --capture-path /var/log/lading/capture.jsonl \
+  --capture-format jsonl \
+  --capture-flush-seconds 30 \
+  --target-path /usr/local/bin/my-agent
+```
+
+## Capture formats
+
+The `format` field under `telemetry` (Log mode) controls how captured metrics are serialized to disk.
+
+### JSONL
+
+One JSON object per line. Easy to parse with standard tools (`jq`, Python, etc).
+
+```yaml
+telemetry:
+  path: "/tmp/capture.jsonl"
+  format:
+    jsonl:
+      flush_seconds: 60
+```
+
+<ParamField body="format.jsonl.flush_seconds" type="number" default="60">
+  Seconds to buffer in memory before flushing to disk. Lower values reduce data loss on crash at the cost of more disk I/O.
+</ParamField>
+
+### Parquet
+
+Apache Parquet columnar format. More compact than JSONL for large datasets; supports efficient column-level queries.
+
+```yaml
+telemetry:
+  path: "/tmp/capture.parquet"
+  format:
+    parquet:
+      flush_seconds: 60
+      compression_level: 3
+```
+
+<ParamField body="format.parquet.flush_seconds" type="number" default="60">
+  Seconds to buffer before writing a Parquet row group.
+</ParamField>
+
+<ParamField body="format.parquet.compression_level" type="number" default="3">
+  Zstandard compression level (1–22). Higher values compress more but are slower to write. The default of `3` is a good balance for most workloads.
+</ParamField>
+
+### Multi
+
+Writes both JSONL and Parquet simultaneously to the same base path. Useful when you want both human-readable output and efficient storage.
+
+```yaml
+telemetry:
+  path: "/tmp/capture"
+  format:
+    multi:
+      flush_seconds: 60
+      compression_level: 3
+```
+
+<ParamField body="format.multi.flush_seconds" type="number" default="60">
+  Seconds to buffer before flushing both formats to disk.
+</ParamField>
+
+<ParamField body="format.multi.compression_level" type="number" default="3">
+  Zstandard compression level for the Parquet component.
+</ParamField>
+
+## Global labels
+
+Global labels are attached to every metric emitted by lading, regardless of mode. They are set either in the YAML file or via the `--global-labels` CLI flag.
+
+CLI format uses `KEY=VAL` pairs separated by commas:
+
+```bash
+--global-labels experiment=baseline,run=1,host=runner-01
+```
+
+YAML format:
+
+```yaml
+telemetry:
+  addr: "0.0.0.0:9000"
+  global_labels:
+    experiment: "baseline"
+    run: "1"
+    host: "runner-01"
+```
+
+<Note>
+  Labels set via `--global-labels` on the CLI are merged with any labels defined in the YAML file. CLI labels do not override YAML labels — both sets are applied.
+</Note>
+
+## Logging
+
+lading uses the `RUST_LOG` environment variable for its own process logs (separate from telemetry metrics). Set it using standard `tracing-subscriber` filter syntax:
+
+```bash
+RUST_LOG=info lading run --config-path lading.yaml --no-target
+```
+
+Common log levels: `error`, `warn`, `info`, `debug`, `trace`.
+
+For JSON-formatted logs (useful in structured logging pipelines), use the `--json-logs` flag:
+
+```bash
+lading --json-logs run --config-path lading.yaml --no-target
+```

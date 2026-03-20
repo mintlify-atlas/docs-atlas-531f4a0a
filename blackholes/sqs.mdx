@@ -1,0 +1,65 @@
+---
+title: 'SQS blackhole'
+description: 'An Amazon SQS-compatible HTTP server that handles ReceiveMessage, DeleteMessage, and DeleteMessageBatch actions.'
+---
+
+The SQS blackhole implements a minimal Amazon Simple Queue Service (SQS)-compatible HTTP server. It parses the SQS query-string action field from POST request bodies and returns plausible XML responses for `ReceiveMessage`, `DeleteMessage`, and `DeleteMessageBatch` actions. Fake message bodies and random receipt handles are generated on-the-fly. Unknown actions return `501 Not Implemented`. The server never applies backpressure to the target.
+
+<Note>
+  Blackholes never backpressure the target. Lading is designed to be faster than the system under test, so the blackhole accepts data as fast as the target sends it.
+</Note>
+
+## Supported SQS actions
+
+| Action | Description |
+|--------|-------------|
+| `ReceiveMessage` | Returns a batch of fake messages sized to `MaxNumberOfMessages`. |
+| `DeleteMessage` | Acknowledges deletion of a single message. |
+| `DeleteMessageBatch` | Acknowledges deletion of a batch of up to 10 messages. |
+
+## Configuration
+
+```yaml
+blackhole:
+  - sqs:
+      binding_addr: "127.0.0.1:8000"
+      concurrent_requests_max: 100
+```
+
+### Fields
+
+<ParamField body="binding_addr" type="string" required>
+  IP address and port for the SQS-compatible HTTP server to bind to. Example: `"127.0.0.1:8000"`.
+</ParamField>
+
+<ParamField body="concurrent_requests_max" type="number" default="100">
+  Maximum number of concurrent HTTP connections to accept simultaneously.
+</ParamField>
+
+## Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `bytes_received` | Total bytes received in request bodies (labeled by component). |
+| `total_bytes_received` | Aggregated bytes received across all blackhole instances (unlabeled). |
+| `requests_received` | Total number of HTTP requests accepted. |
+
+All per-component metrics carry `component=blackhole` and `component_name=sqs` labels. If you set an `id` in the general blackhole config, an `id` label is added as well.
+
+## Typical generator pairings
+
+<Tip>
+  The SQS blackhole is designed for agents that consume from SQS queues. The agent under test polls this blackhole for messages, processes them, and deletes them — just as it would against real SQS.
+</Tip>
+
+- **HTTP generator** — can be configured to POST SQS-formatted requests directly
+- **Agent target polling SQS** — the typical setup is an agent target that reads from SQS; this blackhole pretends to be the SQS endpoint
+
+### Example: SQS blackhole
+
+```yaml
+blackhole:
+  - sqs:
+      binding_addr: "127.0.0.1:8000"
+      concurrent_requests_max: 100
+```

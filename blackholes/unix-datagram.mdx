@@ -1,0 +1,58 @@
+---
+title: 'Unix datagram blackhole'
+description: 'A Unix domain socket (datagram) server that receives datagrams, counts bytes, and discards all data.'
+---
+
+The Unix datagram blackhole creates a Unix domain socket in datagram mode, receives individual datagrams up to 65,536 bytes, and discards them after counting the bytes. It does not parse any protocol or send replies. Any pre-existing socket file at the configured path is removed on startup. The server never applies backpressure to the target.
+
+<Note>
+  Blackholes never backpressure the target. Lading is designed to be faster than the system under test, so the blackhole accepts data as fast as the target sends it.
+</Note>
+
+## Configuration
+
+```yaml
+blackhole:
+  - unix_datagram:
+      path: /tmp/lading-dgram.sock
+```
+
+### Fields
+
+<ParamField body="path" type="string" required>
+  Filesystem path for the Unix domain datagram socket. Any existing socket file at this path is deleted before binding. Example: `"/tmp/lading-dgram.sock"`.
+</ParamField>
+
+## Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `bytes_received` | Total bytes received in all datagrams (labeled by component). |
+| `total_bytes_received` | Aggregated bytes received across all blackhole instances (unlabeled). |
+
+All per-component metrics carry `component=blackhole` and `component_name=unix_datagram` labels. If you set an `id` in the general blackhole config, an `id` label is added as well.
+
+## Typical generator pairings
+
+<Tip>
+  Use the Unix datagram blackhole when the target forwards data to a local Unix socket using a connectionless datagram protocol, such as DogStatsD over UDS.
+</Tip>
+
+- **Unix datagram generator** — sends payload datagrams over a Unix domain datagram socket
+- **DogStatsD generator** — can be configured to use a Unix socket path instead of UDP
+
+### Example: Unix datagram generator to Unix datagram blackhole
+
+```yaml
+generator:
+  - unix_datagram:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      path: /tmp/lading-dgram.sock
+      bytes_per_second: "100 MiB"
+      variant: dogstatsd
+
+blackhole:
+  - unix_datagram:
+      path: /tmp/lading-dgram.sock
+```

@@ -1,0 +1,154 @@
+---
+title: "gRPC generator"
+description: "Generate deterministic gRPC unary RPC load against a target endpoint."
+---
+
+The gRPC generator sends unary RPC requests to a target endpoint at a configurable rate. It uses a no-op codec that sends raw bytes directly, making it suitable for any gRPC service that accepts protobuf-encoded payloads.
+
+## Configuration example
+
+```yaml
+generator:
+  - grpc:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://127.0.0.1:4317/opentelemetry.proto.collector.trace.v1.TraceService/Export"
+      variant:
+        opentelemetry_traces:
+          services: 10
+      parallel_connections: 2
+      bytes_per_second: "5 MiB"
+      maximum_prebuild_cache_size_bytes: "64 MiB"
+```
+
+## Configuration fields
+
+<ParamField body="seed" type="number[]" required>
+  A 32-byte array used to seed all random operations. The same seed always
+  produces the same sequence of payloads.
+</ParamField>
+
+<ParamField body="target_uri" type="string" required>
+  The full gRPC URI including service path and method, in the form
+  `http://<host>/<ServicePath>/<Method>`. For example:
+  `http://127.0.0.1:4317/opentelemetry.proto.collector.trace.v1.TraceService/Export`.
+</ParamField>
+
+<ParamField body="variant" type="object" required>
+  The payload format to generate. For typical gRPC endpoints this should be a
+  protobuf-encoded payload such as `opentelemetry_traces`,
+  `opentelemetry_logs`, or `opentelemetry_metrics`. See
+  [supported payloads](#supported-payloads) below.
+</ParamField>
+
+<ParamField body="maximum_prebuild_cache_size_bytes" type="string" required>
+  Maximum total size of the pre-built block cache. Accepts human-readable
+  byte values such as `"64 MiB"`. Must be greater than zero.
+</ParamField>
+
+<ParamField body="parallel_connections" type="number" required>
+  Number of concurrent RPC connections. The gRPC transport channel is
+  configured with a concurrency limit equal to this value.
+</ParamField>
+
+<ParamField body="bytes_per_second" type="string">
+  Target throughput as a human-readable byte rate, for example `"5 MiB"`.
+  Mutually exclusive with `throttle`. When neither is set, the generator
+  runs as fast as possible.
+</ParamField>
+
+<ParamField body="maximum_block_size" type="string" default="system default">
+  Maximum size of a single block in the pre-built cache. Accepts
+  human-readable byte values.
+</ParamField>
+
+<ParamField body="block_cache_method" type="string" default="fixed">
+  Strategy for building the block cache. Only `fixed` is currently supported.
+</ParamField>
+
+<ParamField body="throttle" type="object">
+  Advanced throttle configuration. Mutually exclusive with `bytes_per_second`.
+
+  <Expandable title="throttle variants">
+    **`all_out`** — Send as fast as possible.
+
+    ```yaml
+    throttle: all_out
+    ```
+
+    **`stable`** — Maintain a constant rate.
+
+    ```yaml
+    throttle:
+      stable:
+        bytes_per_second: "5 MiB"
+        timeout_millis: 0
+    ```
+
+    **`linear`** — Ramp load linearly over time.
+
+    ```yaml
+    throttle:
+      linear:
+        initial: "1 MiB"
+        maximum: "50 MiB"
+        rate_of_change: "2 MiB"
+    ```
+  </Expandable>
+</ParamField>
+
+## Supported payloads
+
+All `lading_payload` variants are accepted. For gRPC endpoints that expect
+protobuf-encoded data, use one of the OpenTelemetry variants:
+
+| Variant | Description |
+|---|---|
+| `opentelemetry_traces` | OpenTelemetry trace data (protobuf) |
+| `opentelemetry_logs` | OpenTelemetry log data (protobuf) |
+| `opentelemetry_metrics` | OpenTelemetry metric data (protobuf) |
+| `trace_agent` | Datadog Trace Agent MsgPack payloads |
+| `ascii` | Random printable ASCII text lines |
+| `json` | Random JSON-encoded lines |
+| `apache_common` | Apache Common Log Format lines |
+| `fluent` | Fluent (MessagePack) messages |
+| `syslog5424` | Syslog RFC 5424 messages |
+| `datadog_log` | Datadog Logs JSON messages |
+| `splunk_hec` | Splunk HEC JSON or text events |
+| `dogstatsd` | DogStatsD metric payloads |
+| `static` | Content read from a file (single block) |
+| `static_chunks` | Content read from a file, chunked by line |
+| `templated_json` | JSON generated from a user-supplied YAML template |
+
+<Tip>
+  Most real gRPC services expect protobuf-encoded bodies. Use
+  `opentelemetry_traces`, `opentelemetry_logs`, or `opentelemetry_metrics` for
+  OTLP collector endpoints.
+</Tip>
+
+## Behavior notes
+
+- **Unary RPC only**: The generator sends one request at a time per connection
+  using the tonic `unary` call. Streaming RPC modes are not supported.
+- **No-op codec**: Payload bytes are sent as-is without any additional
+  protobuf framing by the codec. The payload variant is responsible for
+  producing valid wire bytes.
+- **Connection retries**: If the initial connection to the gRPC endpoint fails,
+  the generator retries every 100 ms until it succeeds.
+- **Pre-built cache**: All payload blocks are generated before the run starts.
+- **Response bytes**: The generator counts response bytes received but does not
+  validate response content.
+- **Single connection loop**: Unlike TCP/UDP, the gRPC generator does not spawn
+  worker tasks — it runs a single sequential request loop per instance.
+
+## Emitted metrics
+
+| Metric | Description |
+|---|---|
+| `requests_sent` | Total RPC requests sent |
+| `request_ok` | Successful RPC responses |
+| `request_failure` | Failed RPC requests (labeled with `error`) |
+| `bytes_written` | Total request bytes sent in successful calls |
+| `response_bytes` | Total response bytes received |
+| `bytes_per_second` | Configured target rate |
+| `data_points_transmitted` | Data points sent (OpenTelemetry metrics only) |

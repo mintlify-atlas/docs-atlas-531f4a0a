@@ -1,0 +1,184 @@
+---
+title: "Analyzing capture data"
+description: "Understand and inspect the metrics lading records during a run using captool and the capture file format."
+---
+
+During a run, lading records time-series metrics about the target process and its own generator throughput. This data can be written to disk as a capture file, or exported in real time via a Prometheus endpoint.
+
+## Capture file formats
+
+Lading supports three capture file formats, selected with `--capture-format`:
+
+<AccordionGroup>
+  <Accordion title="jsonl (default)">
+    Newline-delimited JSON (JSONL). Each line is a JSON object representing a single metric observation. Human-readable and easy to parse with standard tools.
+
+    ```bash
+    lading --capture-path ./capture.json --capture-format jsonl ...
+    ```
+
+    Example line:
+
+    ```json
+    {"run_id":"b3c4d5e6-...","time":1700000000123,"fetch_index":42,"metric_name":"observer.memory.rss","metric_kind":"gauge","value":104857600}
+    ```
+  </Accordion>
+  <Accordion title="parquet">
+    Apache Parquet columnar format. More efficient for large captures and better suited to analytical queries.
+
+    ```bash
+    lading --capture-path ./capture.parquet --capture-format parquet \
+      --capture-compression-level 3 ...
+    ```
+  </Accordion>
+  <Accordion title="multi">
+    Writes both JSONL and Parquet simultaneously. Useful when you need human-readable output and efficient storage at the same time.
+
+    ```bash
+    lading --capture-path ./capture --capture-format multi ...
+    ```
+  </Accordion>
+</AccordionGroup>
+
+Lading flushes the capture file periodically. Use `--capture-flush-seconds` to control the interval (default: 60 seconds).
+
+## Capture file structure
+
+Each record in the capture file contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `run_id` | UUID | Identifies this lading run. Allows deduplication across repeated runs. |
+| `time` | u128 (ms) | Milliseconds since Unix epoch when the metric was recorded. |
+| `fetch_index` | u64 | Monotonically increasing counter, incremented each time the internal metrics cache is flushed. |
+| `metric_name` | string | Name of the metric (e.g. `observer.memory.rss`). |
+| `metric_kind` | string | `counter`, `gauge`, or `histogram`. |
+| `value` | number | The metric value. |
+| labels | string keys | Additional key-value labels flattened into the record. |
+
+## Metrics captured
+
+Lading captures metrics from several subsystems:
+
+### Observer metrics (target process)
+
+These metrics describe the resource consumption of the target process:
+
+| Metric | Kind | Description |
+|---|---|---|
+| `observer.memory.rss` | gauge | Resident set size in bytes. |
+| `observer.memory.vsz` | gauge | Virtual memory size in bytes. |
+| `observer.cpu.percentage` | gauge | CPU usage as a percentage. |
+| `observer.num_fds` | gauge | Number of open file descriptors. |
+
+### Generator throughput metrics
+
+Each generator emits self-telemetry about how much load it is producing:
+
+| Metric | Kind | Description |
+|---|---|---|
+| `generator.bytes_written` | counter | Total bytes sent to the target. |
+| `generator.requests_sent` | counter | Total requests sent (HTTP/gRPC generators). |
+| `generator.errors` | counter | Total send errors. |
+
+### Blackhole metrics
+
+| Metric | Kind | Description |
+|---|---|---|
+| `blackhole.bytes_received` | counter | Total bytes received by all blackholes. |
+| `blackhole.total_bytes_received` | counter | Aggregated across all blackhole types and IDs. |
+
+### Lading health
+
+| Metric | Kind | Description |
+|---|---|---|
+| `lading.running` | gauge | Set to `1.0` while lading is running. |
+
+## Using captool
+
+`captool` is the companion tool for inspecting capture files. See the [captool reference](/tools/captool) for the full command reference.
+
+### List all metrics
+
+```bash
+captool capture.json
+```
+
+Output:
+
+```
+g: lading.running
+g: observer.memory.rss
+g: observer.memory.vsz
+g: observer.cpu.percentage
+c: generator.bytes_written
+c: blackhole.bytes_received
+```
+
+The prefix indicates the metric kind: `g` for gauge, `c` for counter.
+
+### Inspect a specific metric
+
+```bash
+captool --metric observer.memory.rss capture.json
+```
+
+Outputs statistics including min, mean, max, and whether the series is monotonically increasing.
+
+### Dump raw values
+
+```bash
+captool --metric observer.memory.rss --dump-values capture.json
+```
+
+Outputs each observed value with its `fetch_index`:
+
+```
+1: 94371840
+2: 98566144
+3: 99614720
+```
+
+### Validate a capture file
+
+```bash
+captool validate capture.json
+```
+
+Verifies that:
+- Each `fetch_index` maps to exactly one timestamp.
+- Each metric series has strictly increasing timestamps.
+- Each metric series has strictly increasing `fetch_index` values.
+
+To also require a minimum number of recorded seconds:
+
+```bash
+captool validate --min-seconds 60 capture.json
+```
+
+## Prometheus alternative
+
+If you prefer to pull metrics in real time rather than writing a capture file, configure a Prometheus endpoint:
+
+```bash
+lading --prometheus-addr 0.0.0.0:9090 --no-target ...
+```
+
+Scrape `http://localhost:9090/metrics` with any Prometheus-compatible tool. All the same metrics described above are available, labeled with any `--global-labels` you configure.
+
+<Note>
+With the Prometheus approach you do not get a persistent file. If your Prometheus instance is unavailable during the experiment, data is lost. Use `--capture-path` when you need a durable record.
+</Note>
+
+## Global labels
+
+Use `--global-labels` to attach key-value labels to every metric in the capture. This is useful for correlating results across multiple runs or experiments:
+
+```bash
+lading \
+  --capture-path ./capture.json \
+  --global-labels "experiment=baseline,version=1.2.3" \
+  --no-target ...
+```
+
+Every record in the capture file will include `experiment=baseline` and `version=1.2.3` as additional fields.

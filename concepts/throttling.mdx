@@ -1,0 +1,86 @@
+---
+title: "Throttling"
+description: "How lading controls generator throughput to produce stable, reproducible load at a target rate."
+keywords: ["throttle", "rate limiting", "bytes_per_second", "stable", "linear", "all_out", "throughput"]
+---
+
+Throttling is how lading controls the rate at which generators send data to the target. Without a throttle, generators would send as fast as the CPU and network allow — useful for finding ceilings, but not for measuring behaviour under a specific, repeatable load.
+
+## How the throttle works
+
+The `lading_throttle` crate implements a token-bucket-style rate limiter with microsecond resolution. Internally:
+
+- One **interval** is one second, divided into **1,000,000 ticks** (one tick = one microsecond).
+- Each tick, the throttle accumulates capacity equal to the configured byte rate divided by one million.
+- When the generator wants to send a block, it calls `wait_for(block_size_bytes)`. If enough capacity has accumulated, the call returns immediately. Otherwise the throttle sleeps until capacity is available.
+
+This design keeps the implementation simple and formally verifiable. The `lading_throttle` crate includes Kani proofs for its core invariants.
+
+## Throttle modes
+
+### Stable
+
+Holds a fixed byte rate throughout the experiment. This is the most common mode.
+
+```yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://localhost:8080/"
+      bytes_per_second: "100 MiB"
+      throttle:
+        stable:
+          maximum_capacity: 104857600  # 100 MiB in bytes
+```
+
+The `timeout_micros` parameter controls how much unused capacity can roll over between intervals. The default is `0`, meaning capacity does not accumulate across intervals — the generator cannot burst above the configured rate even if it was briefly idle.
+
+```yaml
+throttle:
+  stable:
+    maximum_capacity: 104857600
+    timeout_micros: 5000  # allow up to 5ms of rolled capacity
+```
+
+### Linear
+
+Ramps throughput from an initial rate up to a maximum rate, increasing by `rate_of_change` bytes per interval tick. Use this to simulate gradually increasing load.
+
+```yaml
+throttle:
+  linear:
+    initial_capacity: 0
+    maximum_capacity: 104857600  # 100 MiB/s ceiling
+    rate_of_change: 100          # bytes added per tick
+```
+
+When multiple workers share a linear throttle, the throttle is divided so that the workers collectively ramp to the maximum at the same time. The `rate_of_change` is preserved per worker — only the capacity bounds are divided.
+
+### All out
+
+No rate limit. The generator sends as fast as the connection and CPU allow. Use this to find throughput ceilings, not for controlled experiments.
+
+```yaml
+throttle:
+  all_out: {}
+```
+
+## Distributing throttles across workers
+
+Some generators run multiple parallel connections or threads. When a throttle is divided across `N` workers, lading divides the `maximum_capacity` by `N` so that the workers collectively sum to the original configured rate.
+
+For example, a `100 MiB/s` stable throttle divided across 4 workers gives each worker `25 MiB/s`. Division returns an error if the result would be less than 1 byte per second.
+
+## Choosing the right mode
+
+| Goal | Recommended mode |
+|---|---|
+| Measure behaviour at a specific, repeatable load | `stable` |
+| Measure how the target responds to increasing load | `linear` |
+| Find maximum throughput | `all_out` |
+| Reproduce a past experiment exactly | `stable` with an explicit seed |
+
+<Note>
+The throttle operates on **bytes**, not messages. A single large block consumes more capacity than multiple small ones. Keep this in mind when setting `maximum_prebuild_cache_size_bytes` relative to `bytes_per_second`.
+</Note>

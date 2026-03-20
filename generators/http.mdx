@@ -1,0 +1,165 @@
+---
+title: "HTTP generator"
+description: "Generate deterministic HTTP POST load against a target URI."
+---
+
+The HTTP generator sends HTTP POST requests to a target URI at a configurable rate. Payloads are pre-built into a fixed block cache before the run starts, ensuring the generator itself is never the bottleneck.
+
+## Configuration example
+
+```yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://127.0.0.1:8080/ingest"
+      headers:
+        Content-Type: application/json
+      parallel_connections: 4
+      bytes_per_second: "10 MiB"
+      method:
+        post:
+          variant: json
+          maximum_prebuild_cache_size_bytes: "64 MiB"
+          block_cache_method: fixed
+```
+
+## Configuration fields
+
+<ParamField body="seed" type="number[]" required>
+  A 32-byte array used to seed all random operations. The same seed always
+  produces the same sequence of payloads, making results reproducible across
+  runs.
+</ParamField>
+
+<ParamField body="target_uri" type="string" required>
+  The full URI to send requests to. Must be a valid HTTP URI, for example
+  `http://127.0.0.1:8080/`.
+</ParamField>
+
+<ParamField body="method" type="object" required>
+  The HTTP method configuration. Currently only `post` is supported.
+
+  <Expandable title="post fields">
+    <ParamField body="variant" type="string" required>
+      The payload format to generate. See [supported payloads](#supported-payloads) below.
+    </ParamField>
+
+    <ParamField body="maximum_prebuild_cache_size_bytes" type="string" required>
+      Maximum size of the pre-built block cache in bytes. Accepts human-readable
+      values such as `"64 MiB"` or `"512 MB"`. Must be greater than zero.
+    </ParamField>
+
+    <ParamField body="block_cache_method" type="string" default="fixed">
+      Strategy for building the block cache. Only `fixed` is currently supported.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="headers" type="object" required>
+  HTTP headers to include in every request. Pass an empty object `{}` if no
+  custom headers are needed. `Content-Length` is always set automatically.
+</ParamField>
+
+<ParamField body="parallel_connections" type="number" required>
+  Number of concurrent HTTP connections to maintain. The generator uses a
+  semaphore to limit in-flight requests to exactly this count. A connection
+  pool is sized to match.
+</ParamField>
+
+<ParamField body="bytes_per_second" type="string">
+  Target throughput expressed as a human-readable byte rate, for example
+  `"1 MiB"` or `"500 MB"`. Mutually exclusive with `throttle`. When neither
+  is set, the generator runs as fast as possible (`all_out` mode).
+</ParamField>
+
+<ParamField body="maximum_block_size" type="string" default="system default">
+  Maximum size of a single block in the pre-built cache. Accepts
+  human-readable byte values. Blocks larger than this limit are discarded
+  during cache construction.
+</ParamField>
+
+<ParamField body="throttle" type="object">
+  Advanced throttle configuration. Mutually exclusive with `bytes_per_second`.
+
+  <Expandable title="throttle variants">
+    **`all_out`** — Send as fast as possible.
+
+    ```yaml
+    throttle: all_out
+    ```
+
+    **`stable`** — Maintain a constant rate.
+
+    ```yaml
+    throttle:
+      stable:
+        bytes_per_second: "10 MiB"
+        timeout_millis: 0
+    ```
+
+    **`linear`** — Ramp load linearly over time.
+
+    ```yaml
+    throttle:
+      linear:
+        initial: "1 MiB"
+        maximum: "100 MiB"
+        rate_of_change: "5 MiB"
+    ```
+  </Expandable>
+</ParamField>
+
+## Supported payloads
+
+The `variant` field inside `method.post` accepts any of the following payload types:
+
+| Variant | Description |
+|---|---|
+| `ascii` | Random printable ASCII text lines |
+| `json` | Random JSON-encoded lines |
+| `apache_common` | Apache Common Log Format lines |
+| `fluent` | Fluent (MessagePack) messages |
+| `syslog5424` | Syslog RFC 5424 messages |
+| `datadog_log` | Datadog Logs JSON messages |
+| `splunk_hec` | Splunk HEC JSON or text events |
+| `opentelemetry_traces` | OpenTelemetry trace data (protobuf) |
+| `opentelemetry_logs` | OpenTelemetry log data (protobuf) |
+| `opentelemetry_metrics` | OpenTelemetry metric data (protobuf) |
+| `dogstatsd` | DogStatsD metric payloads |
+| `trace_agent` | Datadog Trace Agent MsgPack payloads |
+| `static` | Content read from a file (single block) |
+| `static_chunks` | Content read from a file, chunked by line |
+| `templated_json` | JSON generated from a user-supplied YAML template |
+
+## Behavior notes
+
+<Note>
+  The HTTP generator only supports POST requests. GET support is not currently
+  implemented.
+</Note>
+
+- **Parallel connections**: The `parallel_connections` value controls both the
+  HTTP connection pool size (`pool_max_idle_per_host`) and the semaphore used
+  to cap in-flight requests. When a shutdown signal is received, the generator
+  acquires all semaphore permits before returning, ensuring no requests are
+  abandoned mid-flight.
+- **Pre-built cache**: All payload blocks are generated before the run starts.
+  Hot-path execution only reads from the cache; no allocation occurs during
+  sending.
+- **Retry behavior**: Canceled requests are not retried
+  (`retry_canceled_requests: false`). Each failed request increments the
+  `request_failure` counter.
+- **`Content-Length`**: Set automatically on every request. You do not need to
+  include it in `headers`.
+
+## Emitted metrics
+
+| Metric | Description |
+|---|---|
+| `requests_sent` | Total requests sent |
+| `request_ok` | Successful responses (labeled with `status_code`) |
+| `request_failure` | Failed requests (labeled with `error`) |
+| `bytes_written` | Total bytes sent in successful requests |
+| `bytes_per_second` | Configured target rate |
+| `data_points_transmitted` | Data points sent (OpenTelemetry metrics only) |

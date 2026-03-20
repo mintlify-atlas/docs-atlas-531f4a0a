@@ -1,0 +1,178 @@
+---
+title: "Running with Docker"
+description: "Pull and run lading as a Docker container, mount config files, and build custom images for your platform."
+---
+
+Lading publishes pre-built container images to the GitHub Container Registry. You can pull and run these images directly, or build your own for specific platforms.
+
+## Pulling the image
+
+The official lading image is published at `ghcr.io/datadog/lading`. Pull the latest version:
+
+```bash
+docker pull ghcr.io/datadog/lading:latest
+```
+
+Or pin to a specific release:
+
+```bash
+docker pull ghcr.io/datadog/lading:0.31.2
+```
+
+You can browse available releases at [github.com/DataDog/lading/pkgs/container/lading](https://github.com/DataDog/lading/pkgs/container/lading).
+
+## Running lading in a container
+
+Lading reads its configuration from a YAML file. The default path inside the container is `/etc/lading/lading.yaml`. Mount your config file into the container at that path:
+
+```bash
+docker run --rm \
+  -v "$(pwd)/lading.yaml:/etc/lading/lading.yaml" \
+  ghcr.io/datadog/lading:latest \
+  --no-target \
+  --capture-path /tmp/capture.json
+```
+
+To also retrieve the capture file, mount a host directory for output:
+
+```bash
+docker run --rm \
+  -v "$(pwd)/lading.yaml:/etc/lading/lading.yaml" \
+  -v "$(pwd)/output:/output" \
+  ghcr.io/datadog/lading:latest \
+  --no-target \
+  --capture-path /output/capture.json
+```
+
+## Passing config via environment variable
+
+Alternatively, pass the entire config as the `LADING_CONFIG` environment variable without a volume mount:
+
+```bash
+docker run --rm \
+  -e LADING_CONFIG="$(cat lading.yaml)" \
+  ghcr.io/datadog/lading:latest \
+  --no-target \
+  --capture-path /tmp/capture.json
+```
+
+## Connecting to a target container
+
+When lading runs as a sidecar alongside your target container, use Docker's container networking. Both containers must share the same network.
+
+```bash
+# Start your target first
+docker run -d --name my-target --network test-net my-target-image
+
+# Run lading against it
+docker run --rm \
+  --network test-net \
+  -v "$(pwd)/lading.yaml:/etc/lading/lading.yaml" \
+  -v "$(pwd)/output:/output" \
+  ghcr.io/datadog/lading:latest \
+  --no-target \
+  --capture-path /output/capture.json
+```
+
+A minimal `lading.yaml` targeting an HTTP service on the shared network:
+
+```yaml
+generator:
+  - http:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      target_uri: "http://my-target:8080/"
+      bytes_per_second: "10 MiB"
+      parallel_connections: 4
+      method:
+        post:
+          maximum_prebuild_cache_size_bytes: "64 MiB"
+          variant: "ascii"
+      headers: {}
+
+blackhole:
+  - http:
+      binding_addr: "0.0.0.0:9000"
+```
+
+## Using container watch mode
+
+Lading can monitor a running container by name instead of launching a subprocess. Pass the container name with `--target-container`:
+
+```bash
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$(pwd)/lading.yaml:/etc/lading/lading.yaml" \
+  -v "$(pwd)/output:/output" \
+  ghcr.io/datadog/lading:latest \
+  --target-container my-target \
+  --capture-path /output/capture.json
+```
+
+<Warning>
+Container watch mode requires access to the Docker socket. Mount `/var/run/docker.sock` into the lading container, or run with appropriate permissions.
+</Warning>
+
+## Building custom images
+
+If you need a custom build — for example, to add the `logrotate_fs` feature or to target a specific Rust toolchain version — build from the Dockerfile in the lading source repo.
+
+<CodeGroup>
+
+```bash arm64
+docker build \
+  -f arm64.Dockerfile . \
+  --tag my-lading:latest \
+  --platform linux/arm64
+```
+
+```bash amd64
+docker build \
+  -f amd64.Dockerfile . \
+  --tag my-lading:latest \
+  --platform linux/amd64
+```
+
+</CodeGroup>
+
+The Dockerfile uses a multi-stage build:
+
+1. **Planner** — extracts dependency metadata with `cargo-chef`.
+2. **Cacher** — builds only dependencies; this layer is cached until `Cargo.toml` or `Cargo.lock` changes.
+3. **Builder** — compiles the `lading` binary.
+4. **Runtime** — a minimal Debian Bookworm slim image with only `fuse3` as a runtime dependency.
+
+The final image runs `lading` as its entrypoint:
+
+```dockerfile
+ENTRYPOINT ["/usr/bin/lading"]
+```
+
+Any arguments you pass to `docker run` after the image name are forwarded directly to the `lading` binary.
+
+## Enabling structured logs
+
+Pass `--json-logs` to emit log output as structured JSON instead of plain text — useful when your container log aggregator expects JSON:
+
+```bash
+docker run --rm \
+  -v "$(pwd)/lading.yaml:/etc/lading/lading.yaml" \
+  ghcr.io/datadog/lading:latest \
+  --json-logs \
+  --no-target \
+  --prometheus-addr 0.0.0.0:9090
+```
+
+## Controlling log level
+
+Use the `RUST_LOG` environment variable to set the log verbosity:
+
+```bash
+docker run --rm \
+  -e RUST_LOG=debug \
+  -v "$(pwd)/lading.yaml:/etc/lading/lading.yaml" \
+  ghcr.io/datadog/lading:latest \
+  --no-target \
+  --capture-path /tmp/capture.json
+```
+
+Valid values are `error`, `warn`, `info`, `debug`, and `trace`.

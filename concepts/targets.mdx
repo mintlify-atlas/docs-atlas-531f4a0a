@@ -1,0 +1,97 @@
+---
+title: "Targets"
+description: "How lading manages, monitors, and collects metrics from the target process."
+keywords: ["target", "binary", "PID", "container", "Docker", "observer", "CPU", "memory", "cap_sys_ptrace"]
+---
+
+The target is the program you are measuring. lading does not care what it does internally — it observes the target from the outside, reading resource consumption data from the operating system.
+
+## The three target modes
+
+### Binary launch mode
+
+lading acts as a process supervisor. You provide the path to the executable and its arguments; lading spawns it as a child process, monitors it throughout the experiment, and sends `SIGTERM` at shutdown.
+
+```bash
+lading \
+  --config lading.yaml \
+  --target-path /usr/local/bin/my-agent \
+  --target-arguments "--config /etc/agent/config.yaml" \
+  --target-stderr-path /tmp/agent.err \
+  --target-stdout-path /tmp/agent.out
+```
+
+If the target crashes, lading detects the unexpected exit and shuts down cleanly. `--target-stderr-path` and `--target-stdout-path` forward the target's standard streams to files so you can inspect them after the run.
+
+### PID watch mode
+
+The target is already running. You supply its PID and lading monitors it for the duration of the experiment. The target should remain alive until lading exits; if the watched process terminates early, lading exits with an error.
+
+```bash
+lading \
+  --config lading.yaml \
+  --target-pid 12345
+```
+
+This mode is useful when the target is managed by an external orchestrator (systemd, a container runtime, etc.) and you cannot or do not want lading to own its lifecycle.
+
+### Container watch mode
+
+Identical to PID watch mode except that lading resolves the PID by querying the Docker socket with the container name. lading polls the socket until the container is running and its PID is non-zero.
+
+```bash
+lading \
+  --config lading.yaml \
+  --target-container-name my-agent-container
+```
+
+## What metrics lading collects
+
+lading's observer reads target metrics from the operating system at regular intervals. Collected metrics include:
+
+| Category | Metrics |
+|---|---|
+| CPU | User time, kernel time, total CPU usage |
+| Memory | Resident set size (RSS), virtual memory size |
+| File descriptors | Open file descriptor count |
+| I/O | Read bytes, write bytes (where available) |
+
+Metrics are labelled with the target PID and can be scraped from lading's Prometheus endpoint or written to a capture file.
+
+```bash
+# Prometheus scrape endpoint
+lading --prometheus-addr 0.0.0.0:9000 --prometheus-path /metrics
+
+# Write to disk as newline-delimited JSON
+lading --capture-path /tmp/lading-capture.json
+```
+
+See [Capture analysis](/guides/capture-analysis) for how to work with the capture file.
+
+## Observer configuration
+
+The observer runs automatically whenever a target is configured. Its polling interval and which metric groups are enabled can be tuned in the configuration file.
+
+```yaml
+observer:
+  # How often to poll the OS for target metrics (milliseconds)
+  poll_interval_ms: 1000
+```
+
+## Privilege and capability requirements
+
+When lading monitors a process that is more privileged than itself — for example, a containerized target running as root while lading runs as an unprivileged user — some OS metrics are unavailable due to security restrictions.
+
+To grant lading the additional access it needs, use `setcap` to assign `cap_sys_ptrace` to the lading binary:
+
+```bash
+sudo setcap cap_sys_ptrace=ep ./lading
+```
+
+<Warning>
+`cap_sys_ptrace` grants the ability to trace and inspect any process. Only apply it in controlled environments where this level of access is acceptable.
+</Warning>
+
+<Note>
+The `--target-stderr-path` and `--target-stdout-path` flags are only available in binary launch mode. In PID and container watch modes, lading has no control over the target's stdio streams.
+</Note>

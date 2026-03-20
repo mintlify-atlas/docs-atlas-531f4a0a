@@ -1,0 +1,91 @@
+---
+title: 'Container generator'
+description: 'Create and recycle Docker containers to stress container-monitoring tools.'
+---
+
+The container generator creates Docker containers, starts them, and recycles them when they exceed a configured maximum lifetime. It is designed to stress tools that monitor container lifecycle events, such as the Datadog Agent's container check, Docker integration, or eBPF-based runtime security agents.
+
+<Warning>
+  The container generator requires Docker to be running and accessible on the host. lading connects via the Docker socket.
+</Warning>
+
+## Configuration example
+
+```yaml
+generator:
+  - container:
+      repository: busybox
+      tag: latest
+      args:
+        - /bin/sh
+        - -c
+        - |
+          while true; do
+            nc -l -s 0.0.0.0 -p 5000
+          done
+      env:
+        - FOO=env_foo
+        - BAR=env_bar
+      labels:
+        com.datadoghq.ad.checks: >-
+          {"tcp_check": {"instances": [{"name": "foo",
+          "host": "%%host%%", "port": "%%port%%"}]}}
+        foo: label_foo
+      network_disabled: false
+      exposed_ports:
+        - 5000/tcp
+      max_lifetime_seconds: 20
+      number_of_containers: 10
+```
+
+## Configuration fields
+
+<ParamField path="repository" type="string" required>
+  The Docker image repository to pull and run. Accepts any valid Docker image reference, for example `busybox`, `docker.io/datadog/agent`, or `gcr.io/my-project/my-image`.
+</ParamField>
+
+<ParamField path="tag" type="string" required>
+  The image tag to use, for example `latest` or `v7.50.0`.
+</ParamField>
+
+<ParamField path="args" type="string[]">
+  Command-line arguments passed to the container entrypoint. Maps to the `CMD` override in `docker run`.
+</ParamField>
+
+<ParamField path="env" type="string[]">
+  Environment variables for the container in `KEY=VALUE` format. Maps to `docker run --env`.
+</ParamField>
+
+<ParamField path="labels" type="object">
+  Labels to attach to the container. Keys and values are strings. Maps to `docker run --label`.
+</ParamField>
+
+<ParamField path="network_disabled" type="boolean" default="false">
+  When `true`, the container's network interface is disabled. Maps to `docker run --network none`.
+</ParamField>
+
+<ParamField path="exposed_ports" type="string[]" default="[]">
+  Ports to expose on the container. Accepts port/protocol strings such as `5000/tcp`. Maps to `docker run --expose`.
+</ParamField>
+
+<ParamField path="max_lifetime_seconds" type="NonZeroU32" default="u32::MAX (no recycling)">
+  Maximum lifetime of each container in seconds. When a container reaches this age, it is stopped, removed, and a new one is created. The default (`u32::MAX`) means containers are never recycled.
+</ParamField>
+
+<ParamField path="number_of_containers" type="NonZeroU32" default="1">
+  The number of containers to create and maintain concurrently.
+</ParamField>
+
+## Behavior notes
+
+At startup, the generator pulls the image if it is not already present locally, then creates `number_of_containers` containers. It monitors container age and recycles any container that exceeds `max_lifetime_seconds`.
+
+Each container is given a unique name derived from lading's process ID and the container index, preventing naming conflicts when multiple lading instances run on the same host.
+
+<Tip>
+  Set `max_lifetime_seconds` to a low value (for example, `20`) to generate rapid container lifecycle events for testing tools that track container churn.
+</Tip>
+
+<Note>
+  The image is pulled automatically if not present. On slow networks this may delay startup. Pre-pull the image before running lading if startup time is important.
+</Note>

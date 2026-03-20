@@ -1,0 +1,132 @@
+---
+title: 'Process tree generator'
+description: 'Spawn and cycle random process trees to stress process-monitoring tools.'
+---
+
+The process tree generator spawns hierarchical trees of processes at a configurable rate. It is designed to stress process monitoring tools such as runtime security agents, eBPF-based tracers, and any software that tracks process creation and termination events.
+
+Each tree is spawned by forking lading itself, which then executes configured executables as child processes. Trees are torn down and respawned to generate a continuous stream of process lifecycle events.
+
+<Warning>
+  This generator uses `fork(2)` and `exec` system calls. It must run on Linux. It requires the configured `executables` to exist and be executable on the host.
+</Warning>
+
+## Configuration example
+
+```yaml
+generator:
+  - process_tree:
+      seed: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
+             59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131]
+      max_depth: 10
+      max_children: 10
+      process_sleep_ns: 100000000
+      throttle:
+        stable:
+          blocks_per_second: 4
+      executables:
+        - executable: /bin/sleep
+          args:
+            mode: static
+            values:
+              - "0.1"
+          envs:
+            mode: generate
+            length: 16
+            count: 10
+        - executable: /bin/echo
+          args:
+            mode: generate
+            length: 10
+            count: 16
+          envs:
+            mode: static
+            values:
+              - "FOO=bar"
+              - "BAZ=qux"
+```
+
+## Configuration fields
+
+<ParamField path="seed" type="[u8; 32]" required>
+  A 32-byte seed array for the random number generator. The same seed produces the same tree structures and argument sequences.
+</ParamField>
+
+<ParamField path="executables" type="Executable[]" required>
+  A list of executables to use as nodes in the process tree. At least one must be provided. The generator randomly selects from this list when spawning tree nodes.
+
+  <Expandable title="Executable fields">
+    <ParamField path="executable" type="string" required>
+      The absolute path to the executable. The file must exist and have execute permission.
+    </ParamField>
+    <ParamField path="args" type="object" required>
+      Command-line arguments passed to the executable. Choose one mode:
+
+      **Static mode** — use a fixed list of arguments:
+      ```yaml
+      args:
+        mode: static
+        values:
+          - "arg1"
+          - "arg2"
+      ```
+
+      **Generate mode** — randomly generate arguments:
+      ```yaml
+      args:
+        mode: generate
+        length: 10   # max characters per argument (default: 10)
+        count: 16    # max number of arguments (default: 16)
+      ```
+    </ParamField>
+    <ParamField path="envs" type="object" required>
+      Environment variables for the process. Choose one mode:
+
+      **Static mode** — use a fixed list of `KEY=VALUE` strings:
+      ```yaml
+      envs:
+        mode: static
+        values:
+          - "FOO=bar"
+      ```
+
+      **Generate mode** — randomly generate environment variables:
+      ```yaml
+      envs:
+        mode: generate
+        length: 16   # max characters per variable (default: 16)
+        count: 10    # max number of variables (default: 10)
+      ```
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="max_depth" type="NonZeroU32" default="10">
+  The maximum depth of each generated process tree.
+</ParamField>
+
+<ParamField path="max_children" type="NonZeroU32" default="10">
+  The maximum number of child processes per tree node.
+</ParamField>
+
+<ParamField path="process_sleep_ns" type="NonZeroU32" default="100000000">
+  The sleep duration applied at the start of each spawned process, in nanoseconds. The default is 100,000,000 ns (100 ms). This prevents processes from exiting immediately, giving monitoring tools time to observe them.
+</ParamField>
+
+<ParamField path="max_tree_per_second" type="NonZeroU32">
+  The number of process trees to spawn per second. Mutually exclusive with `throttle`. Exactly one of `max_tree_per_second` or `throttle` must be provided.
+</ParamField>
+
+<ParamField path="throttle" type="object">
+  Load throttle configuration. Mutually exclusive with `max_tree_per_second`. Exactly one of `max_tree_per_second` or `throttle` must be provided. See [Throttling](/concepts/throttling).
+</ParamField>
+
+## Behavior notes
+
+The generator serializes its own configuration and passes it to forked child processes, which then exec into the configured executables. The lading binary must be accessible on the host for this to work, as children are bootstrapped by re-executing lading.
+
+All configured executable paths are validated at startup. lading will refuse to start if any path does not exist or is not executable.
+
+<Note>
+  Exactly one of `max_tree_per_second` or `throttle` must be specified. Providing both or neither is a configuration error.
+</Note>

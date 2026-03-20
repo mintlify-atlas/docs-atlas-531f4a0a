@@ -1,0 +1,90 @@
+---
+title: "Splunk HEC"
+description: "Generates Splunk HTTP Event Collector (HEC) formatted events."
+---
+
+The `splunk_hec` payload produces events in the [Splunk HTTP Event Collector](https://docs.splunk.com/Documentation/Splunk/latest/Data/UsetheHTTPEventCollector) format. Events can be encoded as JSON objects or as plain text.
+
+## Format
+
+### JSON encoding (default)
+
+Each line is a JSON object with `event`, `time`, `host`, and `index` fields:
+
+```json
+{"event":{"timestamp":1606215269.333915,"message":"...","attrs":{"systemid":"one","stage":"production","type":"service","c2cService":"tablet","c2cPartition":"us1","c2cStage":"staging","c2cContainerType":"ingress","aws_account":"verymodelofthemodernmajor"}},"time":0.123,"host":"two","index":"eu"}
+```
+
+### Text encoding
+
+Each line contains the timestamp, message, and attributes in a space-separated format:
+
+```text
+1606215269.333915 Es war ein Mann im Lande Uz {"systemid":"three","stage":"performance",...}
+```
+
+## Sample output
+
+```json
+{"event":{"timestamp":1606215269.333915,"message":"Und zeugte sieben Soehne und drei Toechter;","attrs":{"systemid":"two","stage":"production","type":"service","c2cService":"phone","c2cPartition":"ap1","c2cStage":"noprod","c2cContainerType":"ingress","aws_account":"verymodelofthemodernmajor"}},"time":0.8372,"host":"four","index":"eu2"}
+```
+
+## Configuration
+
+<ParamField path="variant.splunk_hec.encoding" type="string" default="json">
+  Encoding format for HEC events. One of:
+  - `json`: Full JSON object with `event`, `time`, `host`, and `index` fields.
+  - `text`: Space-separated timestamp, message, and attrs JSON.
+</ParamField>
+
+## Supported generators
+
+All generators that accept a `variant` field support `splunk_hec`: `http`, `tcp`, `udp`, `unix_stream`, `unix_datagram`, `grpc`, `file_gen`, and `passthru_file`.
+
+<Tip>
+  The `splunk_hec` generator is a dedicated generator for Splunk HEC. For testing a Splunk HEC endpoint with this payload, consider using it alongside the [Splunk HEC generator](/generators/splunk-hec).
+</Tip>
+
+## Example
+
+### JSON encoding (default)
+
+```yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://127.0.0.1:8088/services/collector/event"
+      bytes_per_second: "10 MiB"
+      parallel_connections: 4
+      headers:
+        Authorization: "Splunk my-hec-token"
+        Content-Type: "application/json"
+      method:
+        post:
+          maximum_prebuild_cache_size_bytes: "64 MiB"
+          variant:
+            splunk_hec:
+              encoding: json
+
+blackhole:
+  - splunk_hec:
+      binding_addr: "0.0.0.0:8088"
+      valid_tokens:
+        - "my-hec-token"
+```
+
+### Text encoding
+
+```yaml
+generator:
+  - tcp:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      addr: "127.0.0.1:8088"
+      bytes_per_second: "10 MiB"
+      maximum_prebuild_cache_size_bytes: "64 MiB"
+      variant:
+        splunk_hec:
+          encoding: text
+```

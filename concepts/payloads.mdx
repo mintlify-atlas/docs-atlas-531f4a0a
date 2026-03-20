@@ -1,0 +1,109 @@
+---
+title: "Payloads"
+description: "The content that generators send — how payload types are defined, how blocks are built, and how to choose the right format."
+keywords: ["payload", "block cache", "fluent", "dogstatsd", "opentelemetry", "syslog", "JSON", "pre-computation"]
+---
+
+A payload is the byte content that a generator sends to the target. lading's payload system is responsible for generating realistic, protocol-correct content that can be pre-built into a block cache before any load is sent.
+
+## What payloads are
+
+Payloads are the data that flows through the `Generator -> Target` path. Each payload type produces bytes that conform to a specific protocol or format. The target processes these bytes as if they came from a real upstream producer.
+
+Payloads are decoupled from generators. The same `Fluent` payload type can be sent over HTTP, TCP, or a Unix socket depending on which generator you configure.
+
+## Block cache system
+
+At generator startup, lading calls the payload serializer repeatedly to fill a pool of blocks. Each block is a contiguous slice of bytes ready to be written to the wire. Once the pool is full (bounded by `maximum_prebuild_cache_size_bytes`), no further payload generation occurs until the experiment ends.
+
+During the experiment:
+
+1. The generator picks the next block from the pool (cycling when it reaches the end).
+2. The block is written to the target connection as-is.
+3. The generator advances to the next block.
+
+This design means the hot path contains no serialization, no RNG calls, and no allocation.
+
+### What is pre-computed
+
+- Serialized message bytes (JSON, MsgPack, Protobuf, etc.)
+- String pools for variable fields (service names, hostnames, tags)
+- Attribute and tag combinations
+- Trace hierarchies and span relationships
+- File content for file-based generators
+
+### What is not pre-computed
+
+- Timestamps that must reflect the current time
+- Sequence numbers that must increment
+- Connection-specific state
+
+These exceptions are intentionally minimal and computed with O(1) operations.
+
+## Payload configuration
+
+Each payload type maps to a variant of the `Config` enum in `lading_payload`. In generator YAML configuration, the payload is specified under the generator's `method` or `variant` key.
+
+```yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://localhost:8080/"
+      bytes_per_second: "10 MiB"
+      method:
+        post:
+          variant: "datadog_log"  # <-- payload type
+          maximum_prebuild_cache_size_bytes: "64 MiB"
+```
+
+## Payload types
+
+<CardGroup cols={2}>
+  <Card title="Apache Common" icon="file-lines" href="/payloads/apache-common">
+    Apache Combined Log Format lines. Useful for testing log parsers and pipelines.
+  </Card>
+  <Card title="ASCII" icon="font" href="/payloads/ascii">
+    Lines of printable ASCII characters. A simple baseline payload with no protocol framing.
+  </Card>
+  <Card title="Datadog Logs" icon="d" href="/payloads/datadog-logs">
+    Datadog log intake JSON format. Used when the target is a Datadog Agent or a compatible pipeline.
+  </Card>
+  <Card title="DogStatsD" icon="chart-bar" href="/payloads/dogstatsd">
+    DogStatsD metrics in the standard text wire format. Used with UDP and Unix datagram generators.
+  </Card>
+  <Card title="Fluent" icon="water" href="/payloads/fluent">
+    Fluent Forward Protocol v1 messages encoded as MsgPack. Suitable for Fluentd and Fluent Bit targets.
+  </Card>
+  <Card title="JSON" icon="braces" href="/payloads/json">
+    Generic JSON-encoded log lines. Useful as a simple structured log payload.
+  </Card>
+  <Card title="OpenTelemetry" icon="chart-network" href="/payloads/opentelemetry">
+    OpenTelemetry traces, metrics, and logs encoded as OTLP Protobuf. Configurable service topology.
+  </Card>
+  <Card title="Splunk HEC" icon="database" href="/payloads/splunk-hec">
+    Splunk HTTP Event Collector format in JSON or raw encoding.
+  </Card>
+  <Card title="Syslog" icon="server" href="/payloads/syslog">
+    RFC 5424 syslog messages.
+  </Card>
+  <Card title="Templated JSON" icon="file-code" href="/payloads/templated-json">
+    JSON records generated from a user-supplied YAML template file. Useful for domain-specific schemas.
+  </Card>
+  <Card title="Static" icon="lock" href="/payloads/overview">
+    Reads a file from disk and sends it verbatim. Content is assumed to be line-oriented.
+  </Card>
+  <Card title="Static chunks" icon="layer-group" href="/payloads/overview">
+    Reads a file or directory and chunks content by line into cache blocks.
+  </Card>
+</CardGroup>
+
+## Validating payloads
+
+lading ships `payloadtool`, a CLI utility for inspecting generated payloads without running a full experiment. Use it when writing a new configuration to confirm that the payload variant, seed, and size parameters produce the expected output.
+
+```bash
+payloadtool --variant fluent --seed 1,2,3,...  --max-bytes 4096
+```
+
+See [payloadtool](/tools/payloadtool) for full usage.

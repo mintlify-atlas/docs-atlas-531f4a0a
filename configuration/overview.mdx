@@ -1,0 +1,272 @@
+---
+title: "Configuration overview"
+description: "Complete reference for lading's YAML configuration file and CLI flags."
+keywords: ["lading", "configuration", "yaml", "config file", "reference"]
+---
+
+lading is configured through a YAML file (or directory of YAML files) combined with CLI flags. The config file defines what generators, blackholes, telemetry, and observers to run. CLI flags control the target process and override telemetry settings.
+
+## Config file path
+
+By default, lading reads `/etc/lading/lading.yaml`. Override this with `--config-path`:
+
+```bash
+lading run --config-path /path/to/lading.yaml --no-target
+```
+
+You can also pass the config as an environment variable:
+
+```bash
+LADING_CONFIG="$(cat lading.yaml)" lading run --no-target
+```
+
+## Configuration structure
+
+A lading config file is a YAML document with the following top-level fields:
+
+```yaml lading.yaml
+telemetry:
+  # one of: prometheus, prometheus_socket, or log
+
+generator:
+  - # one or more generator configs
+
+blackhole:
+  - # one or more blackhole configs
+
+observer:
+  enable_smaps: true
+  enable_smaps_rollup: true
+
+target_metrics:
+  - # optional: scrape metrics from the target's own Prometheus endpoint
+
+inspector:
+  # optional: run a sub-process to inspect the target
+
+sample_period_milliseconds: 1000
+```
+
+## Top-level fields
+
+<ParamField body="telemetry" type="object">
+  Controls how lading emits its own metrics. Must be configured either in the YAML file or via CLI flags (`--capture-path`, `--prometheus-addr`, or `--prometheus-path`). See [Telemetry configuration](/configuration/telemetry).
+</ParamField>
+
+<ParamField body="generator" type="array" required>
+  List of generator configurations. Each generator sends synthetic load to a target. At least one generator is required for a meaningful test, though an empty array is accepted. Generators are keyed by protocol name:
+
+  ```yaml
+  generator:
+    - http:
+        seed: [1, 2, 3, ...]
+        target_uri: "http://localhost:8282/"
+        bytes_per_second: "100 MiB"
+        # ...
+    - tcp:
+        seed: [1, 2, 3, ...]
+        addr: "0.0.0.0:8282"
+        variant: "syslog5424"
+        bytes_per_second: "500 MiB"
+  ```
+
+  An optional `id` field can be added to any generator for labeling in telemetry output:
+
+  ```yaml
+  generator:
+    - id: "traffic-in"
+      http:
+        # ...
+  ```
+</ParamField>
+
+<ParamField body="blackhole" type="array">
+  List of blackhole configurations. Each blackhole absorbs traffic from the target under test. Blackholes are keyed by protocol name:
+
+  ```yaml
+  blackhole:
+    - tcp:
+        binding_addr: "0.0.0.0:8080"
+    - http:
+        binding_addr: "0.0.0.0:8081"
+  ```
+
+  Like generators, blackholes accept an optional `id` field.
+</ParamField>
+
+<ParamField body="observer" type="object" default="{enable_smaps: true, enable_smaps_rollup: true}">
+  Controls Linux procfs-based observation of the target process. On non-Linux systems, observer configuration is accepted but has no effect.
+
+  ```yaml
+  observer:
+    enable_smaps: true
+    enable_smaps_rollup: true
+  ```
+
+  <Expandable title="observer fields">
+    <ParamField body="observer.enable_smaps" type="boolean" default="true">
+      Enable per-mapping memory metrics from `/proc/{pid}/smaps`. Sampled every 10th tick when enabled.
+    </ParamField>
+    <ParamField body="observer.enable_smaps_rollup" type="boolean" default="true">
+      Enable aggregate memory metrics from `/proc/{pid}/smaps_rollup`.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="sample_period_milliseconds" type="number" default="1000">
+  The period in milliseconds between target observations (CPU, memory, file descriptors, etc). Lowering this increases measurement resolution but adds overhead.
+
+  ```yaml
+  sample_period_milliseconds: 500
+  ```
+</ParamField>
+
+<ParamField body="target_metrics" type="array">
+  Optional list of Prometheus endpoints to scrape from the target itself. Scraped metrics are merged into lading's capture data alongside observer metrics.
+
+  ```yaml
+  target_metrics:
+    - prometheus:
+        uri: "http://127.0.0.1:8888/metrics"
+        tags:
+          component: "my-agent"
+  ```
+</ParamField>
+
+<ParamField body="inspector" type="object">
+  Optional sub-process to run alongside the target for out-of-band inspection. The inspector receives the target's PID as its first argument.
+
+  ```yaml
+  inspector:
+    command: "/usr/local/bin/my-inspector"
+    arguments:
+      - "--verbose"
+    environment_variables:
+      LOG_LEVEL: "debug"
+  ```
+</ParamField>
+
+## Multi-file directory configuration
+
+lading supports splitting configuration across multiple YAML files in a directory. Pass a directory path to `--config-path`:
+
+```bash
+lading run --config-path /etc/lading/conf.d/ --no-target
+```
+
+lading reads all `.yaml` files in the directory (hidden files starting with `.` are skipped) and merges them using strict composition rules.
+
+### Merge semantics
+
+| Field type | Merge behavior |
+|---|---|
+| `telemetry` | Singleton — must appear in at most one file |
+| `sample_period_milliseconds` | Singleton — must appear in at most one file |
+| `inspector` | Singleton — must appear in at most one file |
+| `generator` | Array — entries from all files are combined |
+| `blackhole` | Array — entries from all files are combined |
+| `target_metrics` | Array — entries are combined, duplicates removed |
+
+Duplicate `id` values within `generator` or `blackhole` arrays are rejected as an error, regardless of which files they come from.
+
+Load order does not affect the result — the merge is commutative and associative.
+
+<Warning>
+  If `telemetry`, `sample_period_milliseconds`, or `inspector` are defined in more than one file, lading exits with an error. These fields must exist in exactly one config file.
+</Warning>
+
+### Example directory layout
+
+```
+/etc/lading/conf.d/
+  01-telemetry.yaml
+  02-generators.yaml
+  03-blackholes.yaml
+```
+
+```yaml 01-telemetry.yaml
+telemetry:
+  path: /var/log/lading/capture.jsonl
+  global_labels:
+    experiment: "baseline"
+
+sample_period_milliseconds: 500
+```
+
+```yaml 02-generators.yaml
+generator:
+  - id: "http-load"
+    http:
+      seed: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
+             59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131]
+      headers: {}
+      target_uri: "http://127.0.0.1:8888/"
+      bytes_per_second: "50 MiB"
+      parallel_connections: 4
+      method:
+        post:
+          maximum_prebuild_cache_size_bytes: "256 MiB"
+          variant: "ascii"
+```
+
+```yaml 03-blackholes.yaml
+blackhole:
+  - id: "sink"
+    http:
+      binding_addr: "127.0.0.1:8888"
+```
+
+## Complete example
+
+The following example sends syslog traffic over TCP, generates file tree activity, and absorbs output on a TCP blackhole:
+
+```yaml lading.yaml
+telemetry:
+  addr: "0.0.0.0:9000"
+  global_labels:
+    experiment: "my-test"
+
+sample_period_milliseconds: 1000
+
+observer:
+  enable_smaps: true
+  enable_smaps_rollup: true
+
+generator:
+  - tcp:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59,
+             61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      addr: "0.0.0.0:8282"
+      variant: "syslog5424"
+      bytes_per_second: "500 MiB"
+      maximum_prebuild_cache_size_bytes: "256 MiB"
+  - file_tree:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59,
+             61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      max_depth: 10
+      max_sub_folders: 5
+      max_files: 10
+      max_nodes: 200
+      name_len: 10
+      root: /tmp/rusty
+      open_per_second: 10
+      rename_per_second: 1
+
+blackhole:
+  - tcp:
+      binding_addr: "0.0.0.0:8080"
+```
+
+Run this config against a target binary:
+
+```bash
+lading run \
+  --config-path lading.yaml \
+  --prometheus-addr 0.0.0.0:9000 \
+  --target-path /usr/local/bin/my-agent \
+  -- --config /etc/agent/config.yaml
+```
+
+<Note>
+  The `target` field in the config struct is not deserialized from YAML — it is always set via CLI flags. See [Target modes](/configuration/target-modes).
+</Note>

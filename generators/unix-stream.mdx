@@ -1,0 +1,149 @@
+---
+title: "Unix stream generator"
+description: "Generate deterministic load over Unix Domain Socket stream connections."
+---
+
+The Unix stream generator connects to a Unix Domain Socket path and writes pre-built payload blocks over stream connections. It supports multiple parallel connections, each with its own block cache and throttle. Partial writes are retried until the full block is delivered.
+
+## Configuration example
+
+```yaml
+generator:
+  - unix_stream:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      path: /var/run/my-agent/agent.sock
+      variant: syslog5424
+      bytes_per_second: "50 MiB"
+      maximum_prebuild_cache_size_bytes: "64 MiB"
+      parallel_connections: 2
+```
+
+## Configuration fields
+
+<ParamField body="seed" type="number[]" required>
+  A 32-byte array used to seed all random operations. The same seed always
+  produces the same sequence of payloads.
+</ParamField>
+
+<ParamField body="path" type="string" required>
+  Filesystem path of the Unix Domain Socket to connect to. For example
+  `/var/run/agent.sock`.
+</ParamField>
+
+<ParamField body="variant" type="string | object" required>
+  The payload format to generate. See [supported payloads](#supported-payloads)
+  below.
+</ParamField>
+
+<ParamField body="maximum_prebuild_cache_size_bytes" type="string" required>
+  Maximum total size of the pre-built block cache per connection. Accepts
+  human-readable byte values such as `"64 MiB"`. Must be greater than zero.
+</ParamField>
+
+<ParamField body="bytes_per_second" type="string">
+  Target throughput per connection as a human-readable byte rate, for example
+  `"50 MiB"`. Each connection gets its own independent throttle at this rate
+  (rates are not divided across connections). Mutually exclusive with
+  `throttle`. When neither is set, the generator runs as fast as possible.
+</ParamField>
+
+<ParamField body="maximum_block_size" type="string" default="system default">
+  Maximum size of a single block in the pre-built cache. Accepts
+  human-readable byte values.
+</ParamField>
+
+<ParamField body="block_cache_method" type="string" default="fixed">
+  Strategy for building the block cache. Only `fixed` is currently supported.
+</ParamField>
+
+<ParamField body="parallel_connections" type="number" default="1">
+  Number of independent Unix stream connections to maintain. Each connection
+  runs its own block cache and throttle; the `bytes_per_second` rate applies
+  independently to each connection.
+</ParamField>
+
+<ParamField body="throttle" type="object">
+  Advanced throttle configuration. Mutually exclusive with `bytes_per_second`.
+
+  <Expandable title="throttle variants">
+    **`all_out`** — Send as fast as possible.
+
+    ```yaml
+    throttle: all_out
+    ```
+
+    **`stable`** — Maintain a constant rate.
+
+    ```yaml
+    throttle:
+      stable:
+        bytes_per_second: "50 MiB"
+        timeout_millis: 0
+    ```
+
+    **`linear`** — Ramp load linearly over time.
+
+    ```yaml
+    throttle:
+      linear:
+        initial: "5 MiB"
+        maximum: "100 MiB"
+        rate_of_change: "5 MiB"
+    ```
+  </Expandable>
+</ParamField>
+
+## Supported payloads
+
+| Variant | Description |
+|---|---|
+| `ascii` | Random printable ASCII text lines |
+| `json` | Random JSON-encoded lines |
+| `apache_common` | Apache Common Log Format lines |
+| `fluent` | Fluent (MessagePack) messages |
+| `syslog5424` | Syslog RFC 5424 messages |
+| `datadog_log` | Datadog Logs JSON messages |
+| `splunk_hec` | Splunk HEC JSON or text events |
+| `opentelemetry_traces` | OpenTelemetry trace data (protobuf) |
+| `opentelemetry_logs` | OpenTelemetry log data (protobuf) |
+| `opentelemetry_metrics` | OpenTelemetry metric data (protobuf) |
+| `dogstatsd` | DogStatsD metric payloads |
+| `trace_agent` | Datadog Trace Agent MsgPack payloads |
+| `static` | Content read from a file (single block) |
+| `static_chunks` | Content read from a file, chunked by line |
+| `templated_json` | JSON generated from a user-supplied YAML template |
+
+## Behavior notes
+
+- **Per-connection caches**: Unlike TCP and UDP, each Unix stream connection
+  builds its own block cache. Memory usage scales with `parallel_connections`.
+- **Per-connection rate**: The `bytes_per_second` rate applies to each
+  connection independently, not divided across them. Setting
+  `parallel_connections: 4` with `bytes_per_second: "50 MiB"` produces up to
+  200 MiB/s total.
+- **Partial write handling**: The generator loops on `try_write` until the
+  full block is written, handling `WouldBlock` by yielding the async task
+  rather than spinning.
+- **Broken pipe reconnect**: A broken pipe error causes the connection to be
+  dropped and re-established on the next iteration.
+- **Startup coordination**: All connection tasks wait for a startup broadcast
+  before beginning to send. This ensures all connections start simultaneously.
+- **Reconnection back-off**: Connection failures sleep for 1 second before
+  retrying.
+
+<Note>
+  Because each connection has an independent block cache and throttle, total
+  memory usage is approximately `maximum_prebuild_cache_size_bytes` multiplied
+  by `parallel_connections`.
+</Note>
+
+## Emitted metrics
+
+| Metric | Description |
+|---|---|
+| `bytes_written` | Bytes sent successfully |
+| `packets_sent` | Write operations completed successfully |
+| `request_failure` | Failed write attempts |
+| `connection_failure` | Connection attempt failures |
+| `bytes_per_second` | Configured target rate |

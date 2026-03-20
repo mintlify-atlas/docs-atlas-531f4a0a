@@ -1,0 +1,61 @@
+---
+title: "Datadog Logs"
+description: "Generates JSON log messages in the Datadog Agent log format."
+---
+
+The `datadog_log` payload produces JSON objects that match the structure emitted by the Datadog Agent log processor. Each line is a complete JSON object representing a single log record. The format is derived from the [Datadog Agent log processor source](https://github.com/DataDog/datadog-agent/blob/a33248c2bc125920a9577af1e16f12298875a4ad/pkg/logs/processor/json.go#L23-L49).
+
+## Format
+
+Each line is a JSON object with the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `message` | string or object | Log message body. Randomly either a short ASCII string or a structured JSON object |
+| `status` | string | One of `notice`, `info`, `warning` |
+| `timestamp` | number | Integer Unix timestamp |
+| `hostname` | string | One of `alpha`, `beta`, `gamma`, `localhost` |
+| `service` | string | One of `vector`, `lading`, `cernan`, `agent` |
+| `ddsource` | string | One of several director names |
+| `ddtags` | string | One of `""`, `"env:prod"`, `"env:dev"`, `"env:prod,version:1.1"` |
+
+## Sample output
+
+```json
+{"message":"RmTq9","status":"info","timestamp":1831204823,"hostname":"alpha","service":"vector","ddsource":"kurosawa","ddtags":"env:prod"}
+{"message":{"proportional":2847361928,"integral":9182736450912837465,"derivative":0.6231984734535217,"vegetable":-4021},"status":"warning","timestamp":3901847263,"hostname":"localhost","service":"agent","ddsource":"lynch","ddtags":""}
+```
+
+## Configuration
+
+`datadog_log` has no configuration options. Specify it as a bare string:
+
+```yaml
+variant: datadog_log
+```
+
+## Supported generators
+
+All generators that accept a `variant` field support `datadog_log`: `http`, `tcp`, `udp`, `unix_stream`, `unix_datagram`, `grpc`, `file_gen`, and `passthru_file`.
+
+## Example
+
+```yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://127.0.0.1:8080/"
+      bytes_per_second: "5 MiB"
+      parallel_connections: 2
+      headers:
+        Content-Type: "application/json"
+      method:
+        post:
+          maximum_prebuild_cache_size_bytes: "50 MiB"
+          variant: datadog_log
+
+blackhole:
+  - http:
+      binding_addr: "0.0.0.0:8080"
+```

@@ -1,0 +1,190 @@
+---
+title: "Performance testing best practices"
+description: "Guidelines for setting up repeatable, accurate performance experiments with lading."
+---
+
+Lading is designed for repeatable, deterministic performance measurement. This guide covers how to get reliable results and avoid common pitfalls.
+
+## Core principle: lading must not be the bottleneck
+
+The fundamental constraint of any lading experiment is that **lading must be faster than the target**. If the target is slower than the configured `bytes_per_second` rate, lading's throttle will naturally limit throughput. But if lading itself becomes the bottleneck — for example, because payload pre-computation exhausted available memory — your results will measure lading's limitations rather than the target's.
+
+<Warning>
+Always verify that the generator is achieving its configured throughput. Check the `generator.bytes_written` counter in your capture file and compare it against `bytes_per_second * experiment_duration_seconds`.
+</Warning>
+
+## Use a fixed seed
+
+Every generator in lading requires a `seed` — a 32-element array of bytes. The seed determines the exact sequence of payloads generated. **The same seed always produces byte-identical payloads**, making experiments reproducible across machines and time.
+
+Choose a seed and keep it constant across all runs in an experiment:
+
+```yaml
+generator:
+  - http:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      target_uri: "http://localhost:8080/"
+      bytes_per_second: "100 MiB"
+      parallel_connections: 10
+      method:
+        post:
+          maximum_prebuild_cache_size_bytes: "256 MiB"
+          variant: "fluent"
+      headers: {}
+```
+
+Change the seed if you want to test with a different payload sequence, but document the seed alongside your results.
+
+## Size the prebuild cache appropriately
+
+Lading pre-computes payloads before the experiment starts and stores them in a fixed-size in-memory cache. The `maximum_prebuild_cache_size_bytes` controls how much memory is allocated for this cache.
+
+**Too small**: Lading may not generate enough variety in the payload sequence, and will loop over a small set of blocks. For most benchmarks this is acceptable, but consider it when testing deduplication or compression in your target.
+
+**Too large**: Memory pressure on the host may affect both lading and the target, invalidating your results. Monitor RSS usage during warm-up.
+
+A practical starting point:
+
+- Use `256 MiB` for most HTTP/TCP/gRPC generators.
+- Reduce to `64 MiB` in memory-constrained environments (e.g., Kubernetes pods).
+- Use `payloadtool --memory-stats` to measure actual allocation for your config.
+
+## Set an appropriate warm-up period
+
+The `--warmup-duration-seconds` flag (default: 30 seconds) allows the target to reach steady state before samples are collected. During warm-up, lading generates load but does not write to the capture file.
+
+Increase the warm-up period if:
+- Your target has a JIT compiler or adaptive caching that needs time to warm up.
+- Connection pools or thread pools take time to reach full capacity.
+- You are testing a target with a large on-disk cache that needs pre-warming.
+
+```bash
+lading \
+  --warmup-duration-seconds 60 \
+  --experiment-duration-seconds 300 \
+  ...
+```
+
+## Use global labels to tag experiments
+
+When comparing multiple runs — for example, a baseline versus a candidate — attach labels to each run using `--global-labels`. These labels are embedded in every record of the capture file and in every Prometheus metric.
+
+```bash
+# Baseline run
+lading \
+  --global-labels "experiment=my-feature,variant=baseline,version=1.2.3" \
+  --capture-path ./baseline-capture.json \
+  ...
+
+# Candidate run
+lading \
+  --global-labels "experiment=my-feature,variant=candidate,version=1.3.0" \
+  --capture-path ./candidate-capture.json \
+  ...
+```
+
+This makes it easy to filter and compare results in analytics tools.
+
+## Avoid common pitfalls
+
+<AccordionGroup>
+  <Accordion title="Memory exhaustion during pre-computation">
+    Lading pre-computes all payload blocks before starting the experiment. If `maximum_prebuild_cache_size_bytes` is set very high and the host has limited memory, the OS may start swapping, which degrades both lading and the target.
+
+    **Fix**: Keep the prebuild cache to a fraction of available memory. Use `payloadtool --memory-stats` to measure how much memory is actually used for your config.
+  </Accordion>
+  <Accordion title="Target not ready at experiment start">
+    If the target takes a long time to start, lading may begin sending load before the target is ready to receive it. The connection errors during this period can skew your generator throughput metrics.
+
+    **Fix**: Increase `--warmup-duration-seconds` to give the target enough time to start accepting connections.
+  </Accordion>
+  <Accordion title="Insufficient parallelism">
+    A single HTTP connection at high throughput may be limited by TCP or HTTP overhead. If the generator is not reaching the configured `bytes_per_second`, try increasing `parallel_connections`.
+
+    **Fix**: Increase `parallel_connections` in the generator config. Start with 4-8 and increase until throughput saturates.
+  </Accordion>
+  <Accordion title="Capture file not flushed on exit">
+    Lading flushes the capture file at the end of the experiment, but if the process is killed abruptly (e.g., SIGKILL), the last flush may not complete.
+
+    **Fix**: Always send SIGINT (Ctrl+C) or rely on lading's built-in experiment duration. Validate the capture file with `captool validate` after each run.
+  </Accordion>
+  <Accordion title="Blackhole not consuming fast enough">
+    If your target pushes output to a blackhole and the blackhole is slow, back-pressure propagates to the target. Lading's blackholes are designed to never backpressure, but verify this if you observe unexpected target behavior.
+
+    **Fix**: Check `blackhole.bytes_received` in the capture file. It should grow at roughly the same rate as `generator.bytes_written`.
+  </Accordion>
+</AccordionGroup>
+
+## Sample complete test setup
+
+The following is a complete, minimal experiment configuration. It uses an HTTP generator to push Fluent Forward protocol messages into a target, with an HTTP blackhole accepting the target's output.
+
+### lading.yaml
+
+```yaml
+generator:
+  - http:
+      seed: [2, 3, 5, 7, 11, 13, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137]
+      target_uri: "http://localhost:8282/"
+      bytes_per_second: "100 MiB"
+      parallel_connections: 10
+      method:
+        post:
+          variant: "fluent"
+          maximum_prebuild_cache_size_bytes: "256 MiB"
+      headers: {}
+
+blackhole:
+  - http:
+      binding_addr: "0.0.0.0:8080"
+```
+
+### Launch command
+
+```bash
+lading \
+  --config-path ./lading.yaml \
+  --target-path /usr/bin/my-agent \
+  --target-arguments "--config /etc/my-agent/config.yaml" \
+  --target-stdout-path ./target-stdout.log \
+  --target-stderr-path ./target-stderr.log \
+  --warmup-duration-seconds 30 \
+  --experiment-duration-seconds 120 \
+  --capture-path ./capture.json \
+  --global-labels "experiment=throughput-baseline,version=1.0.0"
+```
+
+### Interpreting results
+
+After the run completes:
+
+<Steps>
+  <Step title="Validate the capture file">
+    ```bash
+    captool validate --min-seconds 60 ./capture.json
+    ```
+
+    Confirm at least 60 seconds of data was recorded.
+  </Step>
+  <Step title="Check generator throughput">
+    ```bash
+    captool --metric generator.bytes_written ./capture.json
+    ```
+
+    Verify the counter is consistent with `bytes_per_second * experiment_duration_seconds`. Large gaps indicate the target was applying back-pressure.
+  </Step>
+  <Step title="Review memory usage">
+    ```bash
+    captool --metric observer.memory.rss --dump-values ./capture.json
+    ```
+
+    Look for steady growth (memory leak) or unexpected spikes.
+  </Step>
+  <Step title="Review CPU usage">
+    ```bash
+    captool --metric observer.cpu.percentage --dump-values ./capture.json
+    ```
+
+    Check for saturation (values near 100%) that could indicate the target is CPU-bound.
+  </Step>
+</Steps>

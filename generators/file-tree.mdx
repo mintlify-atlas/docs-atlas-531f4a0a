@@ -1,0 +1,79 @@
+---
+title: 'File tree generator'
+description: 'Generate a random file and directory tree, then simulate access and rename operations.'
+---
+
+The file tree generator creates a randomly-structured directory tree and then continuously performs open and rename operations on its nodes. It is designed to stress filesystem monitoring tools such as eBPF-based tracers, `inotify`-based agents, and any software that tracks filesystem events.
+
+Unlike other generators, it does not write payload data. It only creates the tree structure and drives filesystem activity.
+
+## Configuration example
+
+```yaml
+generator:
+  - file_tree:
+      seed: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
+             59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131]
+      root: "/tmp/lading/tree"
+      max_depth: 10
+      max_sub_folders: 5
+      max_files: 5
+      max_nodes: 100
+      name_len: 8
+      open_per_second: 8
+      rename_per_second: 1
+```
+
+## Configuration fields
+
+<ParamField path="seed" type="[u8; 32]" required>
+  A 32-byte seed array for the random number generator. The same seed always produces the same tree structure and operation sequence.
+</ParamField>
+
+<ParamField path="root" type="string" required>
+  The root directory under which the file tree is created. This directory must exist before lading starts.
+</ParamField>
+
+<ParamField path="max_depth" type="NonZeroUsize" default="10">
+  The maximum depth of the generated directory tree.
+</ParamField>
+
+<ParamField path="max_sub_folders" type="NonZeroU32" default="5">
+  The maximum number of subdirectories created under any single directory node.
+</ParamField>
+
+<ParamField path="max_files" type="NonZeroU32" default="5">
+  The maximum number of files created under any single directory node.
+</ParamField>
+
+<ParamField path="max_nodes" type="NonZeroUsize" default="100">
+  The total maximum number of nodes (files and directories combined) in the generated tree.
+</ParamField>
+
+<ParamField path="name_len" type="NonZeroUsize" default="8">
+  The character length of generated file and directory names, not including the `.txt` extension that is appended to files.
+</ParamField>
+
+<ParamField path="open_per_second" type="NonZeroU32" default="8">
+  The rate at which the generator opens nodes (files and directories) per second.
+</ParamField>
+
+<ParamField path="rename_per_second" type="NonZeroU32" default="1">
+  The rate at which the generator renames nodes per second.
+</ParamField>
+
+## Behavior notes
+
+At startup, the generator builds the complete tree synchronously using the configured seed, then enters its operation loop. Open and rename operations are throttled independently by `open_per_second` and `rename_per_second` using stable throttles.
+
+All generated files have the `.txt` extension. Node names are random alphanumeric strings of `name_len` characters.
+
+The generator does not emit throughput metrics. Filesystem activity can be observed through the target under test.
+
+<Warning>
+  The `root` directory must exist before lading starts. lading does not create the root directory.
+</Warning>
+
+<Note>
+  This generator is intended for tools that track filesystem events (opens, renames, creates), not for tools that read file content. No payload data is written to the created files.
+</Note>

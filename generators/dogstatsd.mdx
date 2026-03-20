@@ -1,0 +1,173 @@
+---
+title: 'DogStatsD generator'
+description: 'Generate deterministic DogStatsD metrics, events, and service checks over UDP, UDS, or file.'
+---
+
+The DogStatsD payload type is used with several transport generators (such as `udp`, `unix_datagram`, or `passthru_file`) to emit DogStatsD-formatted datagrams — metrics, events, and service checks — in the style understood by the Datadog Agent.
+
+<Note>
+  DogStatsD is a payload variant, not a standalone generator. Configure it as the `variant` field inside a transport generator such as `udp`, `unix_datagram`, or `passthru_file`.
+</Note>
+
+## Configuration example
+
+The following example uses `passthru_file` as the transport, which writes DogStatsD datagrams to a file for consumption by the Datadog Agent.
+
+```yaml
+generator:
+  - passthru_file:
+      seed: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
+             59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131]
+      path: "/tmp/dsd.txt"
+      variant:
+        dogstatsd:
+          contexts:
+            inclusive:
+              min: 5000
+              max: 10000
+          name_length:
+            inclusive:
+              min: 1
+              max: 200
+          tag_length:
+            inclusive:
+              min: 3
+              max: 100
+          tags_per_msg:
+            inclusive:
+              min: 2
+              max: 50
+          kind_weights:
+            metric: 80
+            event: 10
+            service_check: 10
+          metric_weights:
+            count: 34
+            gauge: 34
+            timer: 5
+            distribution: 1
+            set: 1
+            histogram: 25
+          multivalue_pack_probability: 0.08
+          multivalue_count:
+            inclusive:
+              min: 2
+              max: 32
+          sampling_probability: 0.5
+          sampling_range:
+            inclusive:
+              min: 0.1
+              max: 1.0
+          unique_tag_ratio: 0.11
+          length_prefix_framed: false
+      bytes_per_second: "80 MiB"
+      maximum_prebuild_cache_size_bytes: "1 GiB"
+```
+
+## Payload configuration fields
+
+<ParamField path="contexts" type="ConfRange<u32>" default="{ min: 5000, max: 10000 }">
+  The number of unique metric contexts (metric name + tag set combinations) to generate. A higher value produces more distinct time series. Maximum is 10,000,000.
+
+  Accepts `constant: N` or `inclusive: { min: M, max: N }`.
+</ParamField>
+
+<ParamField path="service_check_names" type="ConfRange<u16>" default="{ min: 1, max: 10000 }">
+  The range of unique service check names to generate.
+</ParamField>
+
+<ParamField path="name_length" type="ConfRange<u16>" default="{ min: 1, max: 200 }">
+  The character length range for metric, event, and service check names. Maximum is 4,096.
+</ParamField>
+
+<ParamField path="tag_length" type="ConfRange<u16>" default="{ min: 3, max: 100 }">
+  The character length range for each tag string (key:value pair combined).
+</ParamField>
+
+<ParamField path="tags_per_msg" type="ConfRange<u8>" default="{ min: 2, max: 50 }">
+  The number of tags to attach to each DogStatsD message.
+</ParamField>
+
+<ParamField path="kind_weights" type="object">
+  Relative probability weights for the three kinds of DogStatsD datagrams. Values are relative to each other, not percentages.
+
+  <Expandable title="kind_weights fields">
+    <ParamField path="kind_weights.metric" type="u8" default="80">Weight for metric datagrams.</ParamField>
+    <ParamField path="kind_weights.event" type="u8" default="10">Weight for event datagrams.</ParamField>
+    <ParamField path="kind_weights.service_check" type="u8" default="10">Weight for service check datagrams.</ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="metric_weights" type="object">
+  Relative probability weights for metric types when a metric datagram is generated.
+
+  <Expandable title="metric_weights fields">
+    <ParamField path="metric_weights.count" type="u8" default="34">Weight for count metrics.</ParamField>
+    <ParamField path="metric_weights.gauge" type="u8" default="34">Weight for gauge metrics.</ParamField>
+    <ParamField path="metric_weights.timer" type="u8" default="5">Weight for timer metrics.</ParamField>
+    <ParamField path="metric_weights.distribution" type="u8" default="1">Weight for distribution metrics.</ParamField>
+    <ParamField path="metric_weights.set" type="u8" default="1">Weight for set metrics.</ParamField>
+    <ParamField path="metric_weights.histogram" type="u8" default="25">Weight for histogram metrics.</ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="value" type="object">
+  Configuration for numeric values within metric datagrams.
+
+  <Expandable title="value fields">
+    <ParamField path="value.float_probability" type="f32" default="0.5">
+      Probability (0.0–1.0) that a metric value is a float rather than an integer.
+    </ParamField>
+    <ParamField path="value.range" type="ConfRange<i64>" default="{ min: i64::MIN, max: i64::MAX }">
+      The range of numeric values to generate.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="multivalue_pack_probability" type="f32" default="0.08">
+  Probability (0.0–1.0) that a single datagram contains multiple values (multi-value packing).
+</ParamField>
+
+<ParamField path="multivalue_count" type="ConfRange<u16>" default="{ min: 2, max: 32 }">
+  The number of values to include when a datagram is multi-value packed.
+</ParamField>
+
+<ParamField path="sampling_probability" type="f32" default="0.5">
+  Probability (0.0–1.0) that a datagram includes a sampling rate field.
+</ParamField>
+
+<ParamField path="sampling_range" type="ConfRange<f32>" default="{ min: 0.1, max: 1.0 }">
+  The range of sampling rate values to use when a sampling rate is included.
+</ParamField>
+
+<ParamField path="unique_tag_ratio" type="f32" default="0.11">
+  Ratio between 0.10 and 1.0 controlling tag reuse. A value of `1.0` means every tag is unique; `0.10` means 90% of tags are reused from an existing pool. Lower values reduce cardinality to simulate real-world tag sharing.
+</ParamField>
+
+<ParamField path="length_prefix_framed" type="boolean" default="false">
+  When `true`, each emitted block is prefixed with a 4-byte little-endian `u32` length header. Enable this for UDS stream transports; leave disabled for UDP and UDS datagram transports.
+</ParamField>
+
+<ParamField path="metric_names" type="string[]">
+  An explicit list of metric names to use. When provided, names are sampled from this list instead of being generated randomly.
+</ParamField>
+
+<ParamField path="tag_names" type="string[]">
+  An explicit list of tag key names to use. When provided, tag keys are sampled from this list.
+</ParamField>
+
+<ParamField path="tag_values" type="string[]">
+  An explicit list of tag values to use. When provided, tag values are sampled from this list.
+</ParamField>
+
+## Behavior notes
+
+Contexts are pre-generated at startup from the configured seed. Each context is a unique combination of metric name and tag set. The generator cycles through contexts deterministically, ensuring the same seed always produces the same load.
+
+<Tip>
+  To generate a high-cardinality workload that stresses the Datadog Agent's aggregation layer, increase `contexts` and `unique_tag_ratio`.
+</Tip>
+
+<Warning>
+  `length_prefix_framed: true` is required for UDS stream transports but will break UDP and UDS datagram transports. Match this setting to your transport.
+</Warning>

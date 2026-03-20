@@ -1,0 +1,131 @@
+---
+title: "Changelog"
+description: "Recent changes and releases for lading."
+---
+
+<AccordionGroup>
+
+  <Accordion title="Unreleased">
+
+    ### Added
+
+    - New `!concat` generator added to the `templated_json` payload generator.
+
+  </Accordion>
+
+  <Accordion title="0.31.2">
+
+    ### Changed
+
+    - Work around tight error loop when a generated block exceeds the throttle's maximum capacity. Oversized blocks are now skipped instead of retried indefinitely, and the log is downgraded from `ERROR` to `DEBUG`.
+
+    ### Removed
+
+    - Reverted HTTP blackhole histogram distribution tracking (`bytes_received_distr`, `decoded_bytes_received_distr`) that was reapplied after 0.31.1.
+
+  </Accordion>
+
+  <Accordion title="0.31.1">
+
+    ### Removed
+
+    - Reverted HTTP blackhole histogram distribution tracking (`bytes_received_distr`, `decoded_bytes_received_distr`) added in 0.31.0 due to back-compat issues.
+
+  </Accordion>
+
+  <Accordion title="0.31.0">
+
+    ### Breaking changes
+
+    - Renamed `lost_bytes` to `missed_bytes` in `logrotate_fs`. This reflects pre-existing terminology.
+    - Replaced the `opentelemetry_traces` payload with a new service topology-based configuration scheme. This allows defining an imaginary distributed system — service type, operations, attributes, and so on — which is then simulated to generate realistic-looking traces and spans.
+
+    ### Added
+
+    - Observer config now supports `enable_smaps` and `enable_smaps_rollup` options to toggle `/proc/{pid}/smaps` and `/proc/{pid}/smaps_rollup` collection.
+    - Lading now supports histogram approximations in its capture files.
+    - New "Static Chunks" generator that divides static files by lines into blocks.
+    - Fingerprint mechanism now calculates Shannon entropy.
+    - New `--json-logs` flag to output logs in structured JSON format.
+    - Blocks are resized after payload generation to free unused buffer memory.
+    - Support for throttling based on block rate instead of bytes. Useful for generators that output variably sized blocks.
+    - UDP generator now accepts a `bind_addr` configuration value.
+    - `dogstatsd` generator can be configured to use metric names, tag names, and tag values from a configured list (`metric_names`, `tag_names`, `tag_values`).
+    - All blackholes now emit a `total_bytes_received` metric providing an aggregated byte count across all blackhole types and IDs.
+    - New `templated_json` payload generator that uses a user-specified template to produce JSON lines.
+    - `payloadtool` now supports a `--dump=FILENAME` option to save generated data blocks to a file.
+
+    ### Fixed
+
+    - Fixed a race condition in `lading_signal` that caused lading to hang on shutdown.
+    - Fixed a tag parsing bug where tags with hyphenated keys were merged with preceding tag values.
+
+  </Accordion>
+
+  <Accordion title="0.30.0">
+
+    ### Added
+
+    - Lading now supports configuration directories. If the config path is a directory, lading merges all `.yaml` files in that directory. Configuration files must be disjoint; overlapping keys cause a startup failure.
+
+    ### Changed
+
+    - Updated OpenTelemetry trace generator to generate more realistic traces: resource, scope, and attributes are populated, along with nested child spans.
+    - Updated Trace Agent generator to nest child spans in a more realistic manner.
+
+  </Accordion>
+
+  <Accordion title="0.29.2">
+
+    ### Added
+
+    - Introduced multi-format writing for capture files. When format is `multi`, data is written in both JSONL and Parquet formats simultaneously.
+    - Added a "Datadog Stateful Logs" blackhole for a new protocol.
+
+  </Accordion>
+
+  <Accordion title="0.29.1">
+
+    ### Fixed
+
+    - Adjusted capture manager time synchronization to after the target is running, maintaining consistency with 0.28 and earlier behavior.
+
+  </Accordion>
+
+  <Accordion title="0.29.0">
+
+    ### Breaking changes
+
+    - Kubernetes generator `max_instance_lifetime_seconds` is now expressed as `u32` instead of `u64`.
+    - Revamped `trace_agent` payload. Only version 0.4 is supported. This is a backwards-incompatible change to any lading configuration using the `trace_agent` payload.
+
+    ### Added
+
+    - Introduced a trace-agent generator for Datadog Agent traces.
+    - Stable throttle now has a `timeout` configuration parameter to model IO done with timeout.
+    - `logrotate_fs` now randomizes its read offset from the block cache to return unique contents per log file.
+    - Added a "Datadog Intake" blackhole, supporting the v2 metrics protobuf protocol.
+    - Added the ability to write capture files in Parquet format.
+
+    ### Changed
+
+    - Containers generator internals reworked to match the Kubernetes generator's approach: explicit state machine driven by `lading_throttle`.
+
+  </Accordion>
+
+  <Accordion title="0.28.0">
+
+    ### Added
+
+    - Added configuration surface area to the OTel logs payload generator, similar to OTel metrics.
+    - Added a way to configure which aggregation temporality is used for OpenTelemetry `Sum` metrics.
+    - Introduced a `kubernetes` generator able to generate an arbitrary number of Kubernetes resources.
+
+    ### Changed
+
+    - Lading toolchain updated to 1.89.0.
+    - Generators now use a handle-based mechanism for their block cache, reducing memory consumption for generators with parallel connection support.
+
+  </Accordion>
+
+</AccordionGroup>

@@ -1,0 +1,59 @@
+---
+title: 'Unix stream blackhole'
+description: 'A Unix domain socket (stream) server that accepts connections, reads all incoming bytes, and discards them.'
+---
+
+The Unix stream blackhole creates a Unix domain socket in stream mode, accepts connections, and drains each connection by reading all bytes. It does not parse any protocol or send responses. This is the Unix socket equivalent of the TCP blackhole. The server never applies backpressure to the target.
+
+<Note>
+  Blackholes never backpressure the target. Lading is designed to be faster than the system under test, so the blackhole accepts data as fast as the target sends it.
+</Note>
+
+## Configuration
+
+```yaml
+blackhole:
+  - unix_stream:
+      path: /tmp/lading.sock
+```
+
+### Fields
+
+<ParamField body="path" type="string" required>
+  Filesystem path for the Unix domain socket. The socket file is created at this path when the blackhole starts. Example: `"/tmp/lading.sock"`.
+</ParamField>
+
+## Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `connection_accepted` | Number of incoming Unix stream connections accepted. |
+| `bytes_received` | Total bytes read from all connections (labeled by component). |
+| `total_bytes_received` | Aggregated bytes received across all blackhole instances (unlabeled). |
+| `requests_received` | Number of individual read chunks received from connections. |
+
+All per-component metrics carry `component=blackhole` and `component_name=unix_stream` labels. If you set an `id` in the general blackhole config, an `id` label is added as well.
+
+## Typical generator pairings
+
+<Tip>
+  Use the Unix stream blackhole when the target forwards data to a local Unix socket using a stream (connection-oriented) protocol.
+</Tip>
+
+- **Unix stream generator** — sends any payload variant over a Unix domain stream socket
+
+### Example: Unix stream generator to Unix stream blackhole
+
+```yaml
+generator:
+  - unix_stream:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      path: /tmp/lading.sock
+      bytes_per_second: "100 MiB"
+      variant: json
+
+blackhole:
+  - unix_stream:
+      path: /tmp/lading.sock
+```

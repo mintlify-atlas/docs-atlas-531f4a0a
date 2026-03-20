@@ -1,0 +1,111 @@
+---
+title: "Payload types"
+description: "Overview of all payload formats available in lading and how to configure them."
+---
+
+Payloads are the data lading generates and sends to your target. Each payload type produces realistic synthetic traffic in a specific wire format. Payloads are pre-computed at startup — the hot path only reads from a pre-built block cache.
+
+## Specifying a payload in your config
+
+Most generators accept a `variant` field that selects the payload type. Some payload types accept additional configuration under that key.
+
+```yaml
+generator:
+  - tcp:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      addr: "127.0.0.1:8080"
+      bytes_per_second: "1 MiB"
+      maximum_prebuild_cache_size_bytes: "100 MiB"
+      variant: apache_common   # <-- payload type here
+```
+
+For payload types that take configuration, use the object form:
+
+```yaml
+variant:
+  splunk_hec:
+    encoding: json
+```
+
+For the HTTP generator, the payload variant lives under `method.post`:
+
+```yaml
+generator:
+  - http:
+      seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+      target_uri: "http://127.0.0.1:8080/"
+      bytes_per_second: "1 MiB"
+      parallel_connections: 1
+      headers: {}
+      method:
+        post:
+          maximum_prebuild_cache_size_bytes: "10 MiB"
+          variant: apache_common
+```
+
+## All payload types
+
+| Payload | Format | Config key | Generators |
+|---------|--------|------------|------------|
+| [Apache Common Log](/payloads/apache-common) | Plain text, line-delimited | `apache_common` | All |
+| [ASCII](/payloads/ascii) | Plain text, line-delimited | `ascii` | All |
+| [Datadog Logs](/payloads/datadog-logs) | JSON, line-delimited | `datadog_log` | All |
+| [DogStatsD](/payloads/dogstatsd) | StatsD text or length-prefix framed | `dogstatsd` | All |
+| [Fluent Forward](/payloads/fluent) | MessagePack binary | `fluent` | All |
+| [JSON](/payloads/json) | JSON, line-delimited | `json` | All |
+| [OpenTelemetry](/payloads/opentelemetry) | OTLP binary protobuf | `opentelemetry_logs`, `opentelemetry_metrics`, `opentelemetry_traces` | All |
+| [Splunk HEC](/payloads/splunk-hec) | JSON or text, line-delimited | `splunk_hec` | All |
+| [Syslog RFC 5424](/payloads/syslog) | Syslog text, line-delimited | `syslog5424` | All |
+| [Templated JSON](/payloads/templated-json) | JSON, line-delimited (user-defined schema) | `templated_json` | All |
+
+<Note>
+  The `static` and `static_chunks` variants let you supply your own file as the payload source. These are not covered in this section.
+</Note>
+
+## Generator support
+
+All payload variants work with the following generators:
+
+- `http` (via `method.post.variant`)
+- `tcp`
+- `udp`
+- `unix_stream`
+- `unix_datagram`
+- `grpc`
+- `file_gen`
+- `passthru_file`
+
+<Columns cols={2}>
+  <Card title="Apache Common Log" icon="file-lines" href="/payloads/apache-common">
+    NCSA Common Log Format access logs
+  </Card>
+  <Card title="ASCII" icon="font" href="/payloads/ascii">
+    Lines of printable ASCII text
+  </Card>
+  <Card title="Datadog Logs" icon="dog" href="/payloads/datadog-logs">
+    Datadog Agent log JSON format
+  </Card>
+  <Card title="DogStatsD" icon="chart-line" href="/payloads/dogstatsd">
+    StatsD-compatible metrics, events, and service checks
+  </Card>
+  <Card title="Fluent Forward" icon="forward" href="/payloads/fluent">
+    Fluentd Forward Protocol v1 (MessagePack)
+  </Card>
+  <Card title="JSON" icon="brackets-curly" href="/payloads/json">
+    Generic JSON objects, line-delimited
+  </Card>
+  <Card title="OpenTelemetry" icon="telescope" href="/payloads/opentelemetry">
+    OTLP protobuf for logs, metrics, and traces
+  </Card>
+  <Card title="Splunk HEC" icon="database" href="/payloads/splunk-hec">
+    Splunk HTTP Event Collector format
+  </Card>
+  <Card title="Syslog RFC 5424" icon="server" href="/payloads/syslog">
+    Standard syslog structured messages
+  </Card>
+  <Card title="Templated JSON" icon="code" href="/payloads/templated-json">
+    User-defined JSON schema via YAML template
+  </Card>
+</Columns>
